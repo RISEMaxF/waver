@@ -6,6 +6,12 @@ import {
   useState,
 } from "react";
 import type { ClipView, ProjectView } from "../audio/project";
+import {
+  pausePlayback,
+  play,
+  playbackStatus,
+  stopPlayback,
+} from "../audio/project";
 import type { ProjectApi } from "../audio/useProject";
 import {
   fetchPeaks,
@@ -17,6 +23,7 @@ import {
 interface Props {
   project: ProjectView | null;
   api: ProjectApi;
+  outputId: string | null;
 }
 
 const TRACK_HEIGHT = 88;
@@ -59,7 +66,7 @@ function fadeGain(curve: string, t: number): number {
   return c;
 }
 
-export function WaveformTimeline({ project, api }: Props) {
+export function WaveformTimeline({ project, api, outputId }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const peaks = useRef<Map<string, PeakPyramid>>(new Map());
@@ -73,9 +80,61 @@ export function WaveformTimeline({ project, api }: Props) {
   const [playheadSec, setPlayheadSec] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [ripple, setRipple] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [paused, setPaused] = useState(false);
   const [, tick] = useState(0);
 
   const sr = project?.sample_rate ?? 48000;
+
+  // ---- Transport (FR-6.1/6.2) ----
+  const startPlay = useCallback(() => {
+    if (!outputId || !project) return;
+    play(outputId, Math.round(playheadSec * sr))
+      .then(() => {
+        setPlaying(true);
+        setPaused(false);
+      })
+      .catch(() => {});
+  }, [outputId, project, playheadSec, sr]);
+
+  const togglePause = useCallback(() => {
+    const next = !paused;
+    pausePlayback(next).catch(() => {});
+    setPaused(next);
+  }, [paused]);
+
+  const stopPlay = useCallback(() => {
+    stopPlayback().catch(() => {});
+    setPlaying(false);
+    setPaused(false);
+  }, []);
+
+  // Poll the transport while playing; the playhead follows the audible output.
+  useEffect(() => {
+    if (!playing) return;
+    let raf = 0;
+    let alive = true;
+    const poll = async () => {
+      try {
+        const st = await playbackStatus();
+        if (!alive) return;
+        setPlayheadSec(st.position_frames / sr);
+        if (!st.playing) {
+          setPlaying(false);
+          setPaused(false);
+          return;
+        }
+      } catch {
+        /* ignore */
+      }
+      if (alive) raf = requestAnimationFrame(poll);
+    };
+    raf = requestAnimationFrame(poll);
+    return () => {
+      alive = false;
+      cancelAnimationFrame(raf);
+    };
+  }, [playing, sr]);
   const clipLen = (c: ClipView) => c.source_out - c.source_in;
 
   useLayoutEffect(() => {
@@ -514,15 +573,38 @@ export function WaveformTimeline({ project, api }: Props) {
         }
       } else if (e.key.toLowerCase() === "s") {
         splitAtPlayhead();
+      } else if (e.key === " ") {
+        e.preventDefault();
+        if (playing) togglePause();
+        else startPlay();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [api, selected, ripple, splitAtPlayhead]);
+  }, [api, selected, ripple, splitAtPlayhead, playing, togglePause, startPlay]);
 
   return (
     <div className="waveform">
       <div className="wave-toolbar">
+        <button
+          type="button"
+          className="transport"
+          disabled={!outputId || !project || project.tracks.length === 0}
+          onClick={playing ? togglePause : startPlay}
+          title={playing ? "Pause / resume (space)" : "Play (space)"}
+        >
+          {playing && !paused ? "⏸" : "▶"}
+        </button>
+        <button
+          type="button"
+          className="transport"
+          disabled={!playing}
+          onClick={stopPlay}
+          title="Stop"
+        >
+          ⏹
+        </button>
+        <span className="tb-sep" />
         <button
           type="button"
           onClick={() => setPps((p) => Math.min(MAX_PPS, p * 1.5))}

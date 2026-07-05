@@ -69,5 +69,28 @@ export const setClipFadeOut = (
   lenFrames: number,
   curve: FadeCurve,
 ) => invoke<ProjectView>("set_clip_fade_out", { clipId, lenFrames, curve });
+export interface PlaybackStatus {
+  playing: boolean;
+  paused: boolean;
+  position_frames: number;
+}
+
+export const play = (
+  deviceId: string,
+  fromFrame: number,
+  loopStart?: number,
+  loopEnd?: number,
+) =>
+  invoke("play", {
+    deviceId,
+    fromFrame,
+    loopStart: loopStart ?? null,
+    loopEnd: loopEnd ?? null,
+  });
+export const pausePlayback = (paused: boolean) =>
+  invoke("pause_playback", { paused });
+export const stopPlayback = () => invoke("stop_playback");
+export const playbackStatus = () => invoke<PlaybackStatus>("playback_status");
+
 export const undo = () => invoke<ProjectView>("undo");
 export const redo = () => invoke<ProjectView>("redo");

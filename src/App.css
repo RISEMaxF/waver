@@ -510,3 +510,14 @@ body {
   color: var(--ink);
   font-size: 0.78rem;
 }
+
+.wave-toolbar button.transport {
+  font-size: 0.95rem;
+  min-width: 2rem;
+  padding: 0.3rem 0.55rem;
+}
+
+.wave-toolbar button.transport:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--edge));
+  color: var(--accent);
+}

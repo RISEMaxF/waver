@@ -15,12 +15,16 @@ pub mod capture;
 pub mod enumerate;
 pub mod input;
 pub mod meter;
+pub mod mixer;
 pub mod peaks;
+pub mod playback;
 
 pub use capture::{RecordingInfo, WavRecorder};
 pub use enumerate::{enumerate_devices, enumerate_hosts};
 pub use input::{open as open_input, InputSession};
+pub use mixer::{decode_wav, DecodedSource, Mixer};
 pub use peaks::{build_pyramid, encode_pyramid, generate_for_wav};
+pub use playback::{start as start_playback, LoopRegion, Playback};
 
 use waver_core::engine::{DeviceInfo, EngineError, HostInfo, MeterUpdate, StreamParams};
 

@@ -90,7 +90,11 @@ function App() {
       <section className="panel">
         <h2>Timeline</h2>
         <div className="panel-body single flush">
-          <WaveformTimeline project={project.project} api={project} />
+          <WaveformTimeline
+            project={project.project}
+            api={project}
+            outputId={audio.outputId}
+          />
         </div>
       </section>
     </main>

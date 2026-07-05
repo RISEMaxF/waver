@@ -19,3 +19,4 @@ cpal = { workspace = true }
 rtrb = { workspace = true }
 hound = { workspace = true }
 thiserror = { workspace = true }
+uuid = { workspace = true }

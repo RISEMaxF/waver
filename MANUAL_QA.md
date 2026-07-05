@@ -68,4 +68,22 @@ Legend: ⬜ not yet checked · ✅ passed · ❌ failed (add notes)
 
 ---
 
+## M6 — Playback
+
+- ⬜ **FR-6.1 transport + mixdown correctness.** Record a couple of takes, press Play
+  (▶ or space), Pause, Stop; click the timeline to move the playhead and play from
+  there. Confirm all non-muted tracks play time-aligned, mute/solo and clip/track gain
+  take effect, and fades are audible. (Mixer math — sum, +6 dB doubles, mute/solo,
+  gain composition — is unit-tested; live playback + position tracking verified on the
+  built-in output.)
+- ⬜ **FR-6.2 A/V sync ≤ 1 frame.** During a ~5-min playback, confirm the moving
+  playhead stays visually aligned with the audible output (≤ 1 frame at 60 fps). The
+  reported position tracks the output callback (measured ~10 ms = output-buffer latency
+  on the built-in device); verify perceptually on your interface.
+- Note: playback requests the project sample rate on the output device; if the device
+  can't honor it, pitch/sync could drift (resampling is M7). Loop-region playback is
+  wired in the engine but not yet exposed in the UI.
+
+---
+
 <!-- Later milestones append below. -->

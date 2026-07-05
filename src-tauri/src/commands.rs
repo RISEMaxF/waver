@@ -16,7 +16,7 @@ use tauri_plugin_store::StoreExt;
 use waver_core::edit::{EditError, History};
 use waver_core::engine::{DeviceInfo, HostInfo, MeterUpdate, StreamParams};
 use waver_core::model::{FadeCurve, Project, Source};
-use waver_engine::{InputSession, NativeEngine};
+use waver_engine::{InputSession, LoopRegion, NativeEngine, Playback};
 
 /// The project model plus its undo/redo history, guarded together to keep them
 /// consistent under one lock.
@@ -34,6 +34,8 @@ pub struct AudioState {
     recording_path: Mutex<Option<std::path::PathBuf>>,
     /// The non-destructive project model + edit history.
     edit: Mutex<EditState>,
+    /// The active playback session, if any.
+    playback: Mutex<Option<Playback>>,
     /// Monotonic take counter for friendly names.
     takes: AtomicU64,
 }
@@ -48,6 +50,7 @@ impl Default for AudioState {
                 project: Project::new(48_000),
                 history: History::default(),
             }),
+            playback: Mutex::new(None),
             takes: AtomicU64::new(0),
         }
     }
@@ -512,6 +515,86 @@ pub fn set_clip_fade_out(
     let id = parse_id(&clip_id)?;
     let c = parse_curve(&curve);
     apply_edit(&state, |p| p.set_clip_fade_out(id, len_frames, c))
+}
+
+/// Playback transport status (spec FR-6.1).
+#[derive(Debug, Clone, Serialize)]
+pub struct PlaybackStatus {
+    pub playing: bool,
+    pub paused: bool,
+    pub position_frames: u64,
+}
+
+/// FR-6.1 — start playback from `from_frame` on the given output device. Any existing
+/// playback is stopped first. Seeking during playback is a fresh `play` at the new
+/// frame. An optional loop region repeats `[loop_start, loop_end)`.
+#[tauri::command]
+pub fn play(
+    state: State<'_, AudioState>,
+    device_id: String,
+    from_frame: u64,
+    loop_start: Option<u64>,
+    loop_end: Option<u64>,
+) -> Result<(), String> {
+    // Stop any current playback (drop outside the guard hold below).
+    let _ = state
+        .playback
+        .lock()
+        .expect("playback mutex poisoned")
+        .take();
+
+    let loop_region = match (loop_start, loop_end) {
+        (Some(s), Some(e)) if e > s => Some(LoopRegion { start: s, end: e }),
+        _ => None,
+    };
+    let playback = {
+        let guard = state.edit.lock().expect("edit mutex poisoned");
+        waver_engine::start_playback(&guard.project, &device_id, from_frame, loop_region)
+            .map_err(|e| e.to_string())?
+    };
+    *state.playback.lock().expect("playback mutex poisoned") = Some(playback);
+    Ok(())
+}
+
+/// FR-6.1 — pause or resume playback.
+#[tauri::command]
+pub fn pause_playback(state: State<'_, AudioState>, paused: bool) {
+    if let Some(pb) = state
+        .playback
+        .lock()
+        .expect("playback mutex poisoned")
+        .as_ref()
+    {
+        pb.set_paused(paused);
+    }
+}
+
+/// FR-6.1 — stop playback.
+#[tauri::command]
+pub fn stop_playback(state: State<'_, AudioState>) {
+    let _ = state
+        .playback
+        .lock()
+        .expect("playback mutex poisoned")
+        .take();
+}
+
+/// FR-6.1/6.2 — poll the transport status (playhead position tracks audible output).
+#[tauri::command]
+pub fn playback_status(state: State<'_, AudioState>) -> PlaybackStatus {
+    let guard = state.playback.lock().expect("playback mutex poisoned");
+    match guard.as_ref() {
+        Some(pb) => PlaybackStatus {
+            playing: pb.is_playing(),
+            paused: pb.is_paused(),
+            position_frames: pb.position(),
+        },
+        None => PlaybackStatus {
+            playing: false,
+            paused: false,
+            position_frames: 0,
+        },
+    }
 }
 
 /// FR-4.7 — undo the last edit.
