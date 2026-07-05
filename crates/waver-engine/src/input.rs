@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -55,6 +55,10 @@ pub struct InputSession {
     device_lost: Arc<AtomicBool>,
     xrun: Arc<AtomicBool>,
     rec_tx: mpsc::Sender<RecCmd>,
+    /// A recording finalized during teardown (e.g. the device was lost mid-record)
+    /// is preserved here so `stop_recording` can still retrieve it instead of losing
+    /// the take. Full device-loss UX (auto-place + notify) is deferred to M8/NFR-5.
+    finished: Arc<Mutex<Option<RecordingInfo>>>,
     audio: Option<JoinHandle<()>>,
     consumer: Option<JoinHandle<()>>,
 }
@@ -73,6 +77,8 @@ impl InputSession {
     /// Start recording to `path` (32-bit float WAV). Errors if already recording or
     /// the file cannot be created.
     pub fn start_recording(&self, path: PathBuf) -> Result<(), EngineError> {
+        // Reset the overrun flag so `had_xrun()` reflects only this recording.
+        self.xrun.store(false, Ordering::SeqCst);
         let (tx, rx) = mpsc::channel();
         self.rec_tx
             .send(RecCmd::Start { path, reply: tx })
@@ -81,14 +87,23 @@ impl InputSession {
             .map_err(|_| EngineError::Backend("recorder did not reply".into()))?
     }
 
-    /// Stop recording and finalize the WAV, returning its metadata.
+    /// Stop recording and finalize the WAV, returning its metadata. If the consumer
+    /// thread already exited (e.g. the device was lost mid-record and the recording
+    /// was finalized during teardown), the preserved take is returned instead of an
+    /// error, so the capture is never silently lost.
     pub fn stop_recording(&self) -> Result<RecordingInfo, EngineError> {
         let (tx, rx) = mpsc::channel();
-        self.rec_tx
-            .send(RecCmd::Stop { reply: tx })
-            .map_err(|_| EngineError::Backend("input session closed".into()))?;
-        rx.recv()
-            .map_err(|_| EngineError::Backend("recorder did not reply".into()))?
+        if self.rec_tx.send(RecCmd::Stop { reply: tx }).is_ok() {
+            if let Ok(result) = rx.recv() {
+                return result;
+            }
+        }
+        // Consumer gone: fall back to a recording preserved during teardown.
+        self.finished
+            .lock()
+            .expect("finished mutex poisoned")
+            .take()
+            .ok_or(EngineError::NotCapturing)
     }
 
     /// Stop the session and join its threads. Idempotent.
@@ -179,6 +194,7 @@ fn build_input_stream(
     device_lost: Arc<AtomicBool>,
     xrun: Arc<AtomicBool>,
 ) -> Result<cpal::Stream, EngineError> {
+    let channels = config.channels.max(1) as usize;
     macro_rules! build {
         ($t:ty) => {{
             let mut producer = producer;
@@ -187,11 +203,17 @@ fn build_input_stream(
             dev.build_input_stream::<$t, _, _>(
                 config.clone(),
                 move |data: &[$t], _: &cpal::InputCallbackInfo| {
-                    for &sample in data {
-                        let s: f32 = f32::from_sample(sample);
-                        if producer.push(s).is_err() {
+                    // Push whole frames only. If the ring can't fit a full frame we
+                    // drop the frame (and flag an xrun) rather than a partial frame —
+                    // a partial-frame drop would permanently swap the interleaved
+                    // channels for the rest of the stream (spec FR-2.4 integrity).
+                    for frame in data.chunks(channels) {
+                        if producer.slots() < frame.len() {
                             xrun.store(true, Ordering::Relaxed);
-                            break; // ring full: drop the rest of this block
+                            break;
+                        }
+                        for &sample in frame {
+                            let _ = producer.push(f32::from_sample(sample));
                         }
                     }
                 },
@@ -234,6 +256,7 @@ where
     let stop = Arc::new(AtomicBool::new(false));
     let device_lost = Arc::new(AtomicBool::new(false));
     let xrun = Arc::new(AtomicBool::new(false));
+    let finished: Arc<Mutex<Option<RecordingInfo>>> = Arc::new(Mutex::new(None));
     let channels = params.channels.max(1) as usize;
     let ring_slots = (params.sample_rate as usize * channels * RING_SECONDS).max(RING_MIN_SLOTS);
     let (ready_tx, ready_rx) = mpsc::channel::<Result<rtrb::Consumer<f32>, EngineError>>();
@@ -340,6 +363,7 @@ where
         let chans = params.channels.max(1) as usize;
         let sample_rate = params.sample_rate;
         let sink = meter_sink;
+        let finished = finished.clone();
         let build_result = thread::Builder::new()
             .name("waver-input-consumer".into())
             .spawn(move || {
@@ -348,64 +372,86 @@ where
                 let mut recorder: Option<WavRecorder> = None;
                 let mut rec_error: Option<EngineError> = None;
 
-                while !stop.load(Ordering::SeqCst) && !device_lost.load(Ordering::SeqCst) {
-                    // Handle recording control commands.
-                    while let Ok(cmd) = rec_rx.try_recv() {
-                        match cmd {
-                            RecCmd::Start { path, reply } => {
-                                let r = WavRecorder::create(&path, params.channels, sample_rate);
-                                match r {
-                                    Ok(w) => {
-                                        recorder = Some(w);
-                                        rec_error = None;
-                                        let _ = reply.send(Ok(()));
-                                    }
-                                    Err(e) => {
-                                        let _ = reply.send(Err(e));
-                                    }
-                                }
-                            }
-                            RecCmd::Stop { reply } => {
-                                let result = match recorder.take() {
-                                    Some(w) => {
-                                        if let Some(e) = rec_error.take() {
-                                            // Finalize whatever we have, but report the error.
-                                            let _ = w.finalize();
-                                            Err(e)
-                                        } else {
-                                            w.finalize()
-                                        }
-                                    }
-                                    None => Err(EngineError::NotCapturing),
-                                };
-                                let _ = reply.send(result);
-                            }
-                        }
-                    }
-
-                    thread::sleep(EMIT_INTERVAL);
-
+                // Drain the ring into `scratch`, writing to the recorder if active.
+                let drain = |ring: &mut rtrb::Consumer<f32>, scratch: &mut Vec<f32>| {
                     scratch.clear();
                     while let Ok(s) = ring.pop() {
                         scratch.push(s);
                     }
+                };
+
+                while !stop.load(Ordering::SeqCst) && !device_lost.load(Ordering::SeqCst) {
+                    thread::sleep(EMIT_INTERVAL);
+
+                    // 1. Drain -> meter + record.
+                    drain(&mut ring, &mut scratch);
                     if !scratch.is_empty() {
                         acc.add(&frame_from_interleaved(&scratch, chans));
                         if let Some(w) = recorder.as_mut() {
                             if let Err(e) = w.write_interleaved(&scratch) {
                                 rec_error = Some(e);
-                                // Stop writing further; keep the recorder to finalize on Stop.
                             }
                         }
                     }
                     if acc.has_data() {
                         sink(acc.drain_to_update());
                     }
+
+                    // 2. Handle recording commands AFTER draining, so Stop captures
+                    //    the freshest data (avoids truncating the recording tail).
+                    while let Ok(cmd) = rec_rx.try_recv() {
+                        match cmd {
+                            RecCmd::Start { path, reply } => {
+                                if recorder.is_some() {
+                                    let _ = reply.send(Err(EngineError::AlreadyCapturing));
+                                } else {
+                                    match WavRecorder::create(&path, params.channels, sample_rate) {
+                                        Ok(w) => {
+                                            recorder = Some(w);
+                                            rec_error = None;
+                                            let _ = reply.send(Ok(()));
+                                        }
+                                        Err(e) => {
+                                            let _ = reply.send(Err(e));
+                                        }
+                                    }
+                                }
+                            }
+                            RecCmd::Stop { reply } => {
+                                // Final drain so no tail samples are lost.
+                                drain(&mut ring, &mut scratch);
+                                if let (Some(w), false) = (recorder.as_mut(), scratch.is_empty()) {
+                                    if let Err(e) = w.write_interleaved(&scratch) {
+                                        rec_error = Some(e);
+                                    }
+                                }
+                                let result = match recorder.take() {
+                                    Some(w) => match rec_error.take() {
+                                        Some(e) => {
+                                            let _ = w.finalize();
+                                            Err(e)
+                                        }
+                                        None => w.finalize(),
+                                    },
+                                    None => Err(EngineError::NotCapturing),
+                                };
+                                let _ = reply.send(result);
+                            }
+                        }
+                    }
                 }
 
-                // Session ending: finalize any in-flight recording so the file is valid.
+                // Session ending (stop or device loss): drain the tail, then finalize
+                // any in-flight recording so the file on disk stays valid.
+                drain(&mut ring, &mut scratch);
+                if let (Some(w), false) = (recorder.as_mut(), scratch.is_empty()) {
+                    let _ = w.write_interleaved(&scratch);
+                }
                 if let Some(w) = recorder.take() {
-                    let _ = w.finalize();
+                    // Preserve the finalized take so stop_recording can still return it.
+                    if let Ok(info) = w.finalize() {
+                        *finished.lock().expect("finished mutex poisoned") = Some(info);
+                    }
                 }
             });
         match build_result {
@@ -424,6 +470,7 @@ where
         device_lost,
         xrun,
         rec_tx,
+        finished,
         audio: Some(audio),
         consumer: Some(consumer),
     })
