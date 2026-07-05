@@ -13,9 +13,17 @@ use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_store::StoreExt;
+use waver_core::edit::{EditError, History};
 use waver_core::engine::{DeviceInfo, HostInfo, MeterUpdate, StreamParams};
 use waver_core::model::{Project, Source};
 use waver_engine::{InputSession, NativeEngine};
+
+/// The project model plus its undo/redo history, guarded together to keep them
+/// consistent under one lock.
+pub struct EditState {
+    project: Project,
+    history: History,
+}
 
 /// App-wide audio + project state (Tauri managed state; `Send + Sync`).
 pub struct AudioState {
@@ -24,8 +32,8 @@ pub struct AudioState {
     session: Mutex<Option<InputSession>>,
     /// Path of the file currently being recorded, if any.
     recording_path: Mutex<Option<std::path::PathBuf>>,
-    /// The non-destructive project model.
-    project: Mutex<Project>,
+    /// The non-destructive project model + edit history.
+    edit: Mutex<EditState>,
     /// Monotonic take counter for friendly names.
     takes: AtomicU64,
 }
@@ -36,7 +44,10 @@ impl Default for AudioState {
             engine: NativeEngine::new(),
             session: Mutex::new(None),
             recording_path: Mutex::new(None),
-            project: Mutex::new(Project::new(48_000)),
+            edit: Mutex::new(EditState {
+                project: Project::new(48_000),
+                history: History::default(),
+            }),
             takes: AtomicU64::new(0),
         }
     }
@@ -48,6 +59,21 @@ impl AudioState {
         let session = self.session.lock().expect("session mutex poisoned").take();
         drop(session);
     }
+}
+
+/// Apply an undoable edit: snapshot the current project, apply `f` to a clone, and
+/// commit only if it succeeds. Returns the updated view.
+fn apply_edit<F>(state: &AudioState, f: F) -> Result<ProjectView, String>
+where
+    F: FnOnce(&mut Project) -> Result<(), EditError>,
+{
+    let mut guard = state.edit.lock().expect("edit mutex poisoned");
+    let st = &mut *guard;
+    let mut next = st.project.clone();
+    f(&mut next).map_err(|e| e.to_string())?;
+    st.history.snapshot(&st.project);
+    st.project = next;
+    Ok(ProjectView::of(&st.project, &st.history))
 }
 
 /// Persisted device/stream selection (spec FR-1.2).
@@ -74,6 +100,98 @@ pub struct RecordingResult {
     pub timeline_start: u64,
     /// True if the capture ring overran (dropped samples) during this take.
     pub xrun: bool,
+}
+
+/// A serialized view of the project for the frontend timeline.
+#[derive(Debug, Clone, Serialize)]
+pub struct ProjectView {
+    pub sample_rate: u32,
+    pub can_undo: bool,
+    pub can_redo: bool,
+    pub tracks: Vec<TrackView>,
+    pub sources: Vec<SourceView>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TrackView {
+    pub id: String,
+    pub name: String,
+    pub gain_db: f32,
+    pub muted: bool,
+    pub soloed: bool,
+    pub clips: Vec<ClipView>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ClipView {
+    pub id: String,
+    pub source_id: String,
+    pub source_channel: Option<u16>,
+    pub source_in: u64,
+    pub source_out: u64,
+    pub timeline_start: u64,
+    pub gain_db: f32,
+    pub fade_in_len: u64,
+    pub fade_out_len: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SourceView {
+    pub id: String,
+    pub channels: u16,
+    pub sample_rate: u32,
+    pub frames: u64,
+}
+
+impl ProjectView {
+    fn of(project: &Project, history: &History) -> Self {
+        ProjectView {
+            sample_rate: project.sample_rate,
+            can_undo: history.can_undo(),
+            can_redo: history.can_redo(),
+            tracks: project
+                .tracks
+                .iter()
+                .map(|t| TrackView {
+                    id: t.id.to_string(),
+                    name: t.name.clone(),
+                    gain_db: t.gain_db,
+                    muted: t.muted,
+                    soloed: t.soloed,
+                    clips: t
+                        .clips
+                        .iter()
+                        .map(|c| ClipView {
+                            id: c.id.to_string(),
+                            source_id: c.source_id.to_string(),
+                            source_channel: c.source_channel,
+                            source_in: c.source_in,
+                            source_out: c.source_out,
+                            timeline_start: c.timeline_start,
+                            gain_db: c.gain_db,
+                            fade_in_len: c.fade_in.len_frames,
+                            fade_out_len: c.fade_out.len_frames,
+                        })
+                        .collect(),
+                })
+                .collect(),
+            sources: project
+                .sources
+                .iter()
+                .map(|s| SourceView {
+                    id: s.id.to_string(),
+                    channels: s.channels,
+                    sample_rate: s.sample_rate,
+                    frames: s.frames,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Parse a Uuid string from the frontend.
+fn parse_id(s: &str) -> Result<uuid::Uuid, String> {
+    uuid::Uuid::parse_str(s).map_err(|e| format!("bad id {s}: {e}"))
 }
 
 const SETTINGS_FILE: &str = "settings.json";
@@ -187,15 +305,19 @@ pub fn stop_recording(state: State<'_, AudioState>) -> Result<RecordingResult, S
         info.frames,
     );
     let (source_id, clip_id, start) = {
-        let mut project = state.project.lock().expect("project mutex poisoned");
+        let mut guard = state.edit.lock().expect("edit mutex poisoned");
+        let st = &mut *guard;
         // Append at the end of the (single) recording track, or a new track.
-        let track_id = project.tracks.first().map(|t| t.id);
-        let start = project
+        let track_id = st.project.tracks.first().map(|t| t.id);
+        let start = st
+            .project
             .tracks
             .first()
             .and_then(|t| t.clips.iter().map(|c| c.timeline_end()).max())
             .unwrap_or(0);
-        let (sid, cid) = project.add_recording(source, track_id, start);
+        // Placing a take is an undoable edit.
+        st.history.snapshot(&st.project);
+        let (sid, cid) = st.project.add_recording(source, track_id, start);
         (sid, cid, start)
     };
 
@@ -221,8 +343,9 @@ pub fn get_waveform_peaks(
     source_id: String,
 ) -> Result<tauri::ipc::Response, String> {
     let path = {
-        let project = state.project.lock().expect("project mutex poisoned");
-        project
+        let guard = state.edit.lock().expect("edit mutex poisoned");
+        guard
+            .project
             .sources
             .iter()
             .find(|s| s.id.to_string() == source_id)
@@ -233,6 +356,126 @@ pub fn get_waveform_peaks(
     Ok(tauri::ipc::Response::new(waver_engine::encode_pyramid(
         &pyramid,
     )))
+}
+
+/// Return the current project view (spec FR-4.1).
+#[tauri::command]
+pub fn get_project(state: State<'_, AudioState>) -> ProjectView {
+    let guard = state.edit.lock().expect("edit mutex poisoned");
+    ProjectView::of(&guard.project, &guard.history)
+}
+
+/// FR-4.3 — split a clip at an absolute timeline frame.
+#[tauri::command]
+pub fn split_clip(
+    state: State<'_, AudioState>,
+    clip_id: String,
+    frame: u64,
+) -> Result<ProjectView, String> {
+    let id = parse_id(&clip_id)?;
+    apply_edit(&state, |p| p.split_clip(id, frame).map(|_| ()))
+}
+
+/// FR-4.4 — trim a clip's right edge to end at `frame`.
+#[tauri::command]
+pub fn trim_clip_end(
+    state: State<'_, AudioState>,
+    clip_id: String,
+    frame: u64,
+) -> Result<ProjectView, String> {
+    let id = parse_id(&clip_id)?;
+    apply_edit(&state, |p| p.trim_clip_end(id, frame))
+}
+
+/// FR-4.4 — trim a clip's left edge to start at `frame`.
+#[tauri::command]
+pub fn trim_clip_start(
+    state: State<'_, AudioState>,
+    clip_id: String,
+    frame: u64,
+) -> Result<ProjectView, String> {
+    let id = parse_id(&clip_id)?;
+    apply_edit(&state, |p| p.trim_clip_start(id, frame))
+}
+
+/// FR-4.2 — move a clip to a track + timeline position.
+#[tauri::command]
+pub fn move_clip(
+    state: State<'_, AudioState>,
+    clip_id: String,
+    track_id: String,
+    frame: u64,
+) -> Result<ProjectView, String> {
+    let cid = parse_id(&clip_id)?;
+    let tid = parse_id(&track_id)?;
+    apply_edit(&state, |p| p.move_clip(cid, tid, frame))
+}
+
+/// FR-4.5 — delete a clip (optionally ripple).
+#[tauri::command]
+pub fn delete_clip(
+    state: State<'_, AudioState>,
+    clip_id: String,
+    ripple: bool,
+) -> Result<ProjectView, String> {
+    let id = parse_id(&clip_id)?;
+    apply_edit(&state, |p| {
+        if ripple {
+            p.ripple_delete_clip(id)
+        } else {
+            p.delete_clip(id)
+        }
+    })
+}
+
+/// FR-4.6 — explode a multichannel clip into one mono clip per channel.
+#[tauri::command]
+pub fn split_clip_channels(
+    state: State<'_, AudioState>,
+    clip_id: String,
+) -> Result<ProjectView, String> {
+    let id = parse_id(&clip_id)?;
+    apply_edit(&state, |p| p.split_clip_channels(id).map(|_| ()))
+}
+
+/// FR-5.2 — set a clip's gain in dB.
+#[tauri::command]
+pub fn set_clip_gain(
+    state: State<'_, AudioState>,
+    clip_id: String,
+    gain_db: f32,
+) -> Result<ProjectView, String> {
+    let id = parse_id(&clip_id)?;
+    apply_edit(&state, |p| p.set_clip_gain(id, gain_db))
+}
+
+/// FR-5.2 — set a track's gain in dB.
+#[tauri::command]
+pub fn set_track_gain(
+    state: State<'_, AudioState>,
+    track_id: String,
+    gain_db: f32,
+) -> Result<ProjectView, String> {
+    let id = parse_id(&track_id)?;
+    apply_edit(&state, |p| p.set_track_gain(id, gain_db))
+}
+
+/// FR-4.7 — undo the last edit.
+#[tauri::command]
+pub fn undo(state: State<'_, AudioState>) -> ProjectView {
+    let mut guard = state.edit.lock().expect("edit mutex poisoned");
+    let st = &mut *guard;
+    st.history.undo(&mut st.project);
+    ProjectView::of(&st.project, &st.history)
+}
+
+/// FR-4.7 — redo the last undone edit.
+#[tauri::command]
+pub fn redo(state: State<'_, AudioState>) -> ProjectView {
+    let mut guard = state.edit.lock().expect("edit mutex poisoned");
+    let st = &mut *guard;
+    st.history.redo(&mut st.project);
+    ProjectView::of(&st.project, &st.history)
 }
 
 /// FR-1.2 — load persisted device/stream selection.

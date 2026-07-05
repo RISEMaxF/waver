@@ -434,3 +434,24 @@ body {
   font-weight: 500;
   font-size: 0.78rem;
 }
+
+.tb-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--edge);
+  margin: 0 0.15rem;
+}
+
+.wave-toolbar button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ripple-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  cursor: pointer;
+}

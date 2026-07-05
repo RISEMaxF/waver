@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAudio } from "./audio/useAudio";
+import { useProject } from "./audio/useProject";
 import { DeviceSelector } from "./components/DeviceSelector";
 import { Meter } from "./components/Meter";
 import { Recorder } from "./components/Recorder";
@@ -15,12 +16,22 @@ interface AppInfo {
 function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const audio = useAudio();
+  const project = useProject();
 
   useEffect(() => {
     invoke<AppInfo>("app_info")
       .then(setInfo)
       .catch(() => {});
   }, []);
+
+  // Refresh the project timeline whenever a new take is recorded.
+  const takeCount = useRef(0);
+  useEffect(() => {
+    if (audio.takes.length !== takeCount.current) {
+      takeCount.current = audio.takes.length;
+      project.refresh();
+    }
+  }, [audio.takes, project]);
 
   return (
     <main className="container">
@@ -79,7 +90,7 @@ function App() {
       <section className="panel">
         <h2>Timeline</h2>
         <div className="panel-body single flush">
-          <WaveformTimeline takes={audio.takes} />
+          <WaveformTimeline project={project.project} api={project} />
         </div>
       </section>
     </main>

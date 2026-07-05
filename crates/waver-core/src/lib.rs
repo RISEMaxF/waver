@@ -7,9 +7,11 @@
 //! the boundary here means the timeline/editing logic never depends on a specific
 //! audio backend.
 
+pub mod edit;
 pub mod engine;
 pub mod model;
 
+pub use edit::{EditError, History};
 pub use engine::{
     AudioEngine, ChannelLevel, DeviceDirection, DeviceInfo, EngineError, HostInfo, MeterUpdate,
     StreamParams,
