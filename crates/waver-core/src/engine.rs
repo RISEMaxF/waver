@@ -10,6 +10,8 @@
 //! `src-tauri` layer, not returned synchronously from these methods; this trait
 //! covers lifecycle control only.
 
+use serde::{Deserialize, Serialize};
+
 use crate::model::Project;
 
 /// Errors an [`AudioEngine`] can surface. Backend-specific errors (cpal, WASAPI, …)
@@ -33,21 +35,22 @@ pub enum EngineError {
 }
 
 /// Whether a device is an input (capture) or output (playback) endpoint.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum DeviceDirection {
     Input,
     Output,
 }
 
 /// An audio host (backend) available on the platform, e.g. CoreAudio, WASAPI, ALSA.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostInfo {
     pub name: String,
     pub is_default: bool,
 }
 
 /// A selectable audio device (spec FR-1.1).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeviceInfo {
     /// Stable identifier used to re-select the device across restarts (spec FR-1.2).
     pub id: String,
@@ -61,8 +64,25 @@ pub struct DeviceInfo {
     pub sample_rates: Vec<u32>,
 }
 
+/// A per-channel level reading (spec FR-2.1), in dBFS.
+///
+/// dBFS is amplitude-referenced: a full-scale sine peaks at 0 dBFS, and its RMS is
+/// ~-3.01 dBFS. So a -6 dBFS sine reads -6 dBFS peak and ~-9 dBFS RMS.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct ChannelLevel {
+    pub peak_dbfs: f32,
+    pub rms_dbfs: f32,
+}
+
+/// A metering update streamed to the frontend over a Tauri Channel (spec FR-2.1),
+/// one [`ChannelLevel`] per input channel.
+#[derive(Debug, Clone, Serialize)]
+pub struct MeterUpdate {
+    pub channels: Vec<ChannelLevel>,
+}
+
 /// Concrete stream parameters chosen by the user (spec FR-1.3).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StreamParams {
     pub sample_rate: u32,
     pub channels: u16,

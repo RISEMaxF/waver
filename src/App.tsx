@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useAudio } from "./audio/useAudio";
+import { DeviceSelector } from "./components/DeviceSelector";
+import { Meter } from "./components/Meter";
 import "./App.css";
 
 interface AppInfo {
@@ -7,26 +10,14 @@ interface AppInfo {
   version: string;
 }
 
-const MILESTONES: { id: string; label: string; done: boolean }[] = [
-  { id: "M0", label: "Scaffold", done: true },
-  { id: "M1", label: "Devices + metering", done: false },
-  { id: "M2", label: "Clean recording", done: false },
-  { id: "M3", label: "Waveforms", done: false },
-  { id: "M4", label: "Timeline editing", done: false },
-  { id: "M5", label: "Fades, gain, channel split", done: false },
-  { id: "M6", label: "Playback engine", done: false },
-  { id: "M7", label: "Import / export", done: false },
-  { id: "M8", label: "Persistence + polish", done: false },
-];
-
 function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const audio = useAudio();
 
   useEffect(() => {
     invoke<AppInfo>("app_info")
       .then(setInfo)
-      .catch((e) => setError(String(e)));
+      .catch(() => {});
   }, []);
 
   return (
@@ -39,29 +30,35 @@ function App() {
         <p className="tagline">
           Non-destructive audio recorder &amp; multitrack editor
         </p>
+        {info && (
+          <p className="build-badge">
+            {info.name} v{info.version} · Rust core connected
+          </p>
+        )}
       </header>
 
-      <section className="status">
-        {info ? (
-          <p className="bridge ok">
-            Rust core connected · <strong>{info.name}</strong> v{info.version}
-          </p>
-        ) : error ? (
-          <p className="bridge err">IPC bridge error: {error}</p>
-        ) : (
-          <p className="bridge">Connecting to Rust core…</p>
-        )}
-      </section>
+      {audio.notice && <p className="notice">{audio.notice}</p>}
+      {audio.error && <p className="error-banner">{audio.error}</p>}
 
-      <ol className="milestones">
-        {MILESTONES.map((m) => (
-          <li key={m.id} className={m.done ? "done" : "todo"}>
-            <span className="tick">{m.done ? "✓" : "○"}</span>
-            <span className="mid">{m.id}</span>
-            <span className="mlabel">{m.label}</span>
-          </li>
-        ))}
-      </ol>
+      <section className="panel">
+        <h2>Input &amp; monitoring</h2>
+        <div className="panel-body">
+          <DeviceSelector
+            inputs={audio.inputs}
+            outputs={audio.outputs}
+            selectedInputId={audio.inputId}
+            selectedOutputId={audio.outputId}
+            sampleRate={audio.sampleRate}
+            bufferFrames={audio.bufferFrames}
+            onSelectInput={audio.selectInput}
+            onSelectOutput={audio.selectOutput}
+            onSelectRate={audio.selectRate}
+            onSelectBuffer={audio.selectBuffer}
+            onRefresh={audio.refresh}
+          />
+          <Meter channels={audio.levels} />
+        </div>
+      </section>
     </main>
   );
 }

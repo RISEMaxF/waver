@@ -1,5 +1,5 @@
 [workspace]
-members = ["src-tauri", "crates/waver-core"]
+members = ["src-tauri", "crates/waver-core", "crates/waver-engine"]
 resolver = "2"
 
 [workspace.package]

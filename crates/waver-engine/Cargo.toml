@@ -1,0 +1,20 @@
+[package]
+name = "waver-engine"
+description = "Waver native audio engine (cpal-backed AudioEngine implementation)"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+# Internal crate; not published to crates.io in v1.
+publish = false
+
+[lib]
+name = "waver_engine"
+
+[dependencies]
+waver-core = { path = "../waver-core" }
+cpal = { workspace = true }
+rtrb = { workspace = true }
+thiserror = { workspace = true }

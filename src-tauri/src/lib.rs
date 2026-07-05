@@ -1,11 +1,13 @@
 //! Waver Tauri backend entry point.
 //!
-//! Commands and streaming channels that bridge the `waver-core` engine/model to the
-//! React frontend are registered here. For M0 this is just an `app_info` smoke-test
-//! command proving the Rust↔JS IPC bridge is live; device/capture/timeline commands
-//! arrive in later milestones.
+//! Commands and streaming channels that bridge the `waver-engine` audio engine and
+//! `waver-core` model to the React frontend are registered here.
+
+mod commands;
 
 use serde::Serialize;
+
+use commands::AudioState;
 
 /// Minimal app metadata returned to the frontend to confirm the IPC bridge works.
 #[derive(Serialize)]
@@ -26,7 +28,17 @@ fn app_info() -> AppInfo {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![app_info])
+        .plugin(tauri_plugin_store::Builder::default().build())
+        .manage(AudioState::default())
+        .invoke_handler(tauri::generate_handler![
+            app_info,
+            commands::list_devices,
+            commands::list_hosts,
+            commands::start_metering,
+            commands::stop_metering,
+            commands::load_settings,
+            commands::save_settings,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

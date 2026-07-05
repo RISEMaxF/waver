@@ -10,7 +10,10 @@
 pub mod engine;
 pub mod model;
 
-pub use engine::{AudioEngine, DeviceDirection, DeviceInfo, EngineError, HostInfo, StreamParams};
+pub use engine::{
+    AudioEngine, ChannelLevel, DeviceDirection, DeviceInfo, EngineError, HostInfo, MeterUpdate,
+    StreamParams,
+};
 pub use model::{
     Clip, FadeCurve, FadeSpec, ModelError, PeakPyramid, Project, Source, Track, ValidationError,
 };
