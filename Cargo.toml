@@ -1,0 +1,37 @@
+[workspace]
+members = ["src-tauri", "crates/waver-core"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT OR Apache-2.0"
+authors = ["Max Fransson"]
+repository = "https://github.com/maxfransson/waver"
+
+# Shared dependency versions. Pin exact lines at implementation time (see spec §5).
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+thiserror = "2"
+
+# Audio stack (added incrementally per milestone; declared here so versions stay
+# consistent across crates). Versions verified against crates.io at scaffold time;
+# note these are newer than the spec §5 estimates (cpal 0.18, symphonia 0.6, rubato 3).
+cpal = "0.18"
+hound = "3.5"
+symphonia = { version = "0.6", features = ["all"] }
+rtrb = "0.3"
+rubato = "3"
+
+[profile.release]
+# Audio work benefits from optimized builds even in debug-ish flows; keep the
+# release profile tuned for the offline mixer / peak generation hot paths.
+opt-level = 3
+lto = "thin"
+
+# Faster incremental dev builds of dependencies while keeping our own crates debuggable.
+[profile.dev.package."*"]
+opt-level = 2

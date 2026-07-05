@@ -1,0 +1,51 @@
+# cargo-deny configuration — dependency license & advisory auditing (spec §9).
+# The project ships as a clean OSS alternative, so the allowed-license set is
+# deliberately permissive-only. Run locally with `cargo deny check`.
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+# Fail on any security vulnerability or yanked crate.
+yanked = "deny"
+# Only flag *unmaintained* crates among our own workspace deps. The Linux WebView
+# stack that Tauri pulls in (webkit2gtk → gtk-rs GTK3 bindings, RUSTSEC-2024-0411..0418)
+# is flagged unmaintained upstream and is out of our control; scoping to "workspace"
+# keeps that noise out while still catching unmaintained crates we add ourselves.
+unmaintained = "workspace"
+
+[licenses]
+version = 2
+# Permissive + weak-copyleft (MPL is file-level; fine for linking — see spec §9).
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "Unlicense",
+    "0BSD",
+]
+# Strong copyleft (GPL/LGPL/AGPL) is intentionally NOT allowed by default. MP3
+# export via LAME (LGPL) is an optional off-by-default feature (spec §9); if that
+# feature is enabled, add an exception here for `mp3lame-encoder` rather than
+# broadening the global allow-list.
+confidence-threshold = 0.9
+
+[bans]
+# Warn on duplicate versions of the same crate; deny wildcard version requirements.
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+# Only crates.io by default.
+unknown-registry = "deny"
+unknown-git = "deny"

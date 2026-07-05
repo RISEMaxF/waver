@@ -1,0 +1,22 @@
+[package]
+name = "waver-core"
+description = "Waver audio engine + non-destructive project model"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+# Internal crate; not published to crates.io in v1.
+publish = false
+
+[lib]
+name = "waver_core"
+
+[dependencies]
+serde = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

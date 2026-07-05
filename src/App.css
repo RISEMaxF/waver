@@ -1,0 +1,137 @@
+:root {
+  --bg: #0e1116;
+  --panel: #161b22;
+  --edge: #232b36;
+  --ink: #e6edf3;
+  --muted: #8b97a6;
+  --accent: #4cc2ff;
+  --ok: #3fb950;
+  --err: #f85149;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.container {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 3rem 2rem;
+}
+
+.masthead h1 {
+  font-size: 3rem;
+  margin: 0;
+  letter-spacing: -0.03em;
+  display: flex;
+  align-items: baseline;
+}
+
+.cursor {
+  display: inline-block;
+  width: 0.5rem;
+  height: 2.2rem;
+  margin-left: 0.35rem;
+  background: var(--accent);
+  animation: blink 1.1s steps(2, start) infinite;
+}
+
+@keyframes blink {
+  to {
+    opacity: 0;
+  }
+}
+
+.tagline {
+  color: var(--muted);
+  margin: 0.35rem 0 0;
+  font-size: 1rem;
+}
+
+.status {
+  margin: 2rem 0;
+}
+
+.bridge {
+  display: inline-block;
+  padding: 0.5rem 0.85rem;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.bridge.ok {
+  border-color: color-mix(in srgb, var(--ok) 40%, var(--edge));
+}
+
+.bridge.ok strong {
+  color: var(--ok);
+}
+
+.bridge.err {
+  border-color: var(--err);
+  color: var(--err);
+}
+
+.milestones {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.milestones li {
+  display: grid;
+  grid-template-columns: 2rem 3rem 1fr;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 1rem;
+  border-top: 1px solid var(--edge);
+}
+
+.milestones li:first-child {
+  border-top: none;
+}
+
+.milestones li.done {
+  background: color-mix(in srgb, var(--ok) 8%, transparent);
+}
+
+.tick {
+  font-weight: 700;
+}
+
+.done .tick {
+  color: var(--ok);
+}
+
+.todo .tick {
+  color: var(--muted);
+}
+
+.mid {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.todo .mlabel {
+  color: var(--muted);
+}
