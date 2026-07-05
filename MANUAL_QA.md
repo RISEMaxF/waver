@@ -48,4 +48,24 @@ Legend: ⬜ not yet checked · ✅ passed · ❌ failed (add notes)
 
 ---
 
+## M4 — Timeline editing
+
+- ⬜ **Interactive editing feel.** With a few takes recorded: drag clips (time + across
+  tracks), drag edges to trim, razor-split at the playhead (S), delete (with ripple
+  toggle), split channels, undo/redo (Cmd+Z / Cmd+Shift+Z). Confirm snapping to grid /
+  clip edges / playhead feels right and edits are reversible. (Model logic is unit-
+  tested incl. a 20-op undo reversal; this is the interaction/feel check.)
+- ⬜ **FR-4.3 split sample-accuracy on export** — verified in M7 (the split halves must
+  export identical to the un-split clip). Model contiguity is unit-tested now.
+
+## M5 — Fades & gain
+
+- ⬜ **FR-5.1 fades audible in playback/export** — verified in M6/M7. The envelope math
+  (incl. equal-power constant-power ±0.5 dB) is unit-tested now; drag the fade handles
+  (top corners of a clip) or use the inspector and confirm the curve shape renders.
+- ⬜ **FR-5.2 gain measured in export** — verified in M7 (a +6 dB clip gain must measure
+  +6 dB in the mixdown). The dB→linear math is unit-tested now.
+
+---
+
 <!-- Later milestones append below. -->

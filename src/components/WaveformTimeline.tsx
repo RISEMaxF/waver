@@ -46,8 +46,18 @@ type Drag =
   | { kind: "move"; clipId: string; grabSec: number }
   | { kind: "trim-start"; clipId: string }
   | { kind: "trim-end"; clipId: string }
+  | { kind: "fade-in"; clipId: string }
+  | { kind: "fade-out"; clipId: string }
   | { kind: "scrub" }
   | null;
+
+// fade-in gain shape mirror of waver_core::FadeCurve::fade_in_gain.
+function fadeGain(curve: string, t: number): number {
+  const c = Math.min(1, Math.max(0, t));
+  if (curve === "equal_power") return Math.sin((c * Math.PI) / 2);
+  if (curve === "log") return c * c;
+  return c;
+}
 
 export function WaveformTimeline({ project, api }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -95,6 +105,11 @@ export function WaveformTimeline({ project, api }: Props) {
     };
   }, [project]);
 
+  // Clear a stale selection after split / channel-split / undo removes the clip.
+  useEffect(() => {
+    if (selected && project && !findClip(project, selected)) setSelected(null);
+  }, [project, selected]);
+
   const height =
     RULER_HEIGHT + Math.max(1, project?.tracks.length ?? 1) * TRACK_HEIGHT;
 
@@ -104,9 +119,13 @@ export function WaveformTimeline({ project, api }: Props) {
       const candidates: number[] = [playheadSec];
       // grid
       candidates.push(Math.round(sec / gridStep) * gridStep);
-      // clip edges
+      // clip edges — but never snap the dragged clip to its own edges, which would
+      // pin it in place and block fine moves.
+      const dragged =
+        drag.current && "clipId" in drag.current ? drag.current.clipId : null;
       for (const t of project?.tracks ?? []) {
         for (const c of t.clips) {
+          if (c.id === dragged) continue;
           candidates.push(c.timeline_start / sr);
           candidates.push((c.timeline_start + clipLen(c)) / sr);
         }
@@ -231,6 +250,48 @@ export function WaveformTimeline({ project, api }: Props) {
             isSel,
             width,
           );
+
+        // Fade envelopes (live length during a fade drag).
+        let fadeInFrames = clip.fade_in_len;
+        let fadeOutFrames = clip.fade_out_len;
+        if (d && d.kind === "fade-in" && d.clipId === clip.id) {
+          fadeInFrames = Math.max(
+            0,
+            (xToSec(mouse.current.x) - clip.timeline_start / sr) * sr,
+          );
+        }
+        if (d && d.kind === "fade-out" && d.clipId === clip.id) {
+          fadeOutFrames = Math.max(
+            0,
+            ((clip.timeline_start + clipLen(clip)) / sr -
+              xToSec(mouse.current.x)) *
+              sr,
+          );
+        }
+        drawFade(
+          ctx,
+          "in",
+          clip.fade_in_curve,
+          fadeInFrames,
+          sr,
+          pps,
+          x0,
+          drawTop,
+          w,
+          laneH,
+        );
+        drawFade(
+          ctx,
+          "out",
+          clip.fade_out_curve,
+          fadeOutFrames,
+          sr,
+          pps,
+          x0,
+          drawTop,
+          w,
+          laneH,
+        );
         ctx.globalAlpha = 1;
       }
     });
@@ -284,21 +345,30 @@ export function WaveformTimeline({ project, api }: Props) {
   );
 
   // ---- Mouse interaction ----
-  const hitTest = (x: number, y: number) => {
+  type Zone = "trim-start" | "trim-end" | "fade-in" | "fade-out" | "body";
+  const hitTest = (
+    x: number,
+    y: number,
+  ): { clip: ClipView; zone: Zone } | null => {
     if (!project || y < RULER_HEIGHT) return null;
     const ti = Math.floor((y - RULER_HEIGHT) / TRACK_HEIGHT);
     const track = project.tracks[ti];
     if (!track) return null;
+    const laneTop = RULER_HEIGHT + ti * TRACK_HEIGHT + 4;
+    const inTopStrip = y <= laneTop + 14;
+    const FADE_ZONE = 22;
     for (const clip of track.clips) {
       const x0 = (clip.timeline_start / sr - scrollSec) * pps;
       const w = (clipLen(clip) / sr) * pps;
-      if (x >= x0 - EDGE_PX && x <= x0 + w + EDGE_PX) {
-        if (Math.abs(x - x0) <= EDGE_PX)
-          return { clip, edge: "start" as const };
-        if (Math.abs(x - (x0 + w)) <= EDGE_PX)
-          return { clip, edge: "end" as const };
-        if (x >= x0 && x <= x0 + w) return { clip, edge: null };
-      }
+      if (x < x0 - EDGE_PX || x > x0 + w + EDGE_PX) continue;
+      // Fade handles live in the top strip near each corner.
+      if (inTopStrip && x >= x0 && x <= x0 + FADE_ZONE)
+        return { clip, zone: "fade-in" };
+      if (inTopStrip && x >= x0 + w - FADE_ZONE && x <= x0 + w)
+        return { clip, zone: "fade-out" };
+      if (Math.abs(x - x0) <= EDGE_PX) return { clip, zone: "trim-start" };
+      if (Math.abs(x - (x0 + w)) <= EDGE_PX) return { clip, zone: "trim-end" };
+      if (x >= x0 && x <= x0 + w) return { clip, zone: "body" };
     }
     return null;
   };
@@ -311,14 +381,19 @@ export function WaveformTimeline({ project, api }: Props) {
     const hit = hitTest(x, y);
     if (hit) {
       setSelected(hit.clip.id);
-      if (hit.edge === "start")
-        drag.current = { kind: "trim-start", clipId: hit.clip.id };
-      else if (hit.edge === "end")
-        drag.current = { kind: "trim-end", clipId: hit.clip.id };
+      const id = hit.clip.id;
+      if (hit.zone === "trim-start")
+        drag.current = { kind: "trim-start", clipId: id };
+      else if (hit.zone === "trim-end")
+        drag.current = { kind: "trim-end", clipId: id };
+      else if (hit.zone === "fade-in")
+        drag.current = { kind: "fade-in", clipId: id };
+      else if (hit.zone === "fade-out")
+        drag.current = { kind: "fade-out", clipId: id };
       else
         drag.current = {
           kind: "move",
-          clipId: hit.clip.id,
+          clipId: id,
           grabSec: xToSec(x) - hit.clip.timeline_start / sr,
         };
     } else {
@@ -354,13 +429,49 @@ export function WaveformTimeline({ project, api }: Props) {
       const track =
         project.tracks[ti] ??
         project.tracks.find((t) => t.clips.some((c) => c.id === clip.id));
-      if (track) api.move(clip.id, track.id, Math.round(startSec * sr));
+      const newStart = Math.round(startSec * sr);
+      const curTrack = project.tracks.find((t) =>
+        t.clips.some((c) => c.id === clip.id),
+      );
+      // Only commit an actual change — a plain click to select must not push a
+      // no-op move (which would pollute undo history and wipe the redo stack).
+      if (
+        track &&
+        (track.id !== curTrack?.id || newStart !== clip.timeline_start)
+      ) {
+        api.move(clip.id, track.id, newStart);
+      }
     } else if (d.kind === "trim-end" && clip) {
       const end = snapSec(xToSec(mouse.current.x), step);
-      api.trimEnd(clip.id, Math.round(end * sr));
+      const frame = Math.round(end * sr);
+      if (frame !== clip.timeline_start + clipLen(clip))
+        api.trimEnd(clip.id, frame);
     } else if (d.kind === "trim-start" && clip) {
       const ns = snapSec(xToSec(mouse.current.x), step);
-      api.trimStart(clip.id, Math.round(ns * sr));
+      const frame = Math.round(ns * sr);
+      if (frame !== clip.timeline_start) api.trimStart(clip.id, frame);
+    } else if (d.kind === "fade-in" && clip) {
+      // Fade length = distance from the clip start to the cursor.
+      const lenFrames = Math.max(
+        0,
+        Math.round((xToSec(mouse.current.x) - clip.timeline_start / sr) * sr),
+      );
+      api.setFadeIn(
+        clip.id,
+        lenFrames,
+        clip.fade_in_curve as "linear" | "equal_power" | "log",
+      );
+    } else if (d.kind === "fade-out" && clip) {
+      const clipEndSec = (clip.timeline_start + clipLen(clip)) / sr;
+      const lenFrames = Math.max(
+        0,
+        Math.round((clipEndSec - xToSec(mouse.current.x)) * sr),
+      );
+      api.setFadeOut(
+        clip.id,
+        lenFrames,
+        clip.fade_out_curve as "linear" | "equal_power" | "log",
+      );
     }
     tick((n) => n + 1);
   };
@@ -503,11 +614,184 @@ export function WaveformTimeline({ project, api }: Props) {
           />
         )}
       </div>
+      <Inspector project={project} selected={selected} api={api} sr={sr} />
+    </div>
+  );
+}
+
+function Inspector({
+  project,
+  selected,
+  api,
+  sr,
+}: {
+  project: ProjectView | null;
+  selected: string | null;
+  api: ProjectApi;
+  sr: number;
+}) {
+  if (!project || !selected) {
+    return (
+      <div className="inspector empty">
+        Select a clip to edit its gain and fades.
+      </div>
+    );
+  }
+  let clip: ClipView | undefined;
+  let track = project.tracks.find((t) => {
+    const c = t.clips.find((c) => c.id === selected);
+    if (c) clip = c;
+    return !!c;
+  });
+  if (!clip || !track) {
+    return (
+      <div className="inspector empty">
+        Select a clip to edit its gain and fades.
+      </div>
+    );
+  }
+  const c = clip;
+  const t = track;
+  const curves: ("linear" | "equal_power" | "log")[] = [
+    "linear",
+    "equal_power",
+    "log",
+  ];
+  const msFrom = (frames: number) => Math.round((frames / sr) * 1000);
+  const framesFrom = (ms: number) => Math.round((ms / 1000) * sr);
+
+  return (
+    <div className="inspector">
+      <div className="insp-group">
+        <span className="insp-label">Clip gain</span>
+        <input
+          type="range"
+          min={-24}
+          max={12}
+          step={0.5}
+          value={c.gain_db}
+          onChange={(e) => api.setClipGain(c.id, Number(e.target.value))}
+        />
+        <span className="insp-val">{c.gain_db.toFixed(1)} dB</span>
+      </div>
+      <div className="insp-group">
+        <span className="insp-label">Fade in</span>
+        <input
+          type="number"
+          min={0}
+          value={msFrom(c.fade_in_len)}
+          onChange={(e) =>
+            api.setFadeIn(
+              c.id,
+              framesFrom(Number(e.target.value)),
+              c.fade_in_curve as never,
+            )
+          }
+        />
+        <span className="insp-unit">ms</span>
+        <select
+          value={c.fade_in_curve}
+          onChange={(e) =>
+            api.setFadeIn(c.id, c.fade_in_len, e.target.value as never)
+          }
+        >
+          {curves.map((cv) => (
+            <option key={cv} value={cv}>
+              {cv}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="insp-group">
+        <span className="insp-label">Fade out</span>
+        <input
+          type="number"
+          min={0}
+          value={msFrom(c.fade_out_len)}
+          onChange={(e) =>
+            api.setFadeOut(
+              c.id,
+              framesFrom(Number(e.target.value)),
+              c.fade_out_curve as never,
+            )
+          }
+        />
+        <span className="insp-unit">ms</span>
+        <select
+          value={c.fade_out_curve}
+          onChange={(e) =>
+            api.setFadeOut(c.id, c.fade_out_len, e.target.value as never)
+          }
+        >
+          {curves.map((cv) => (
+            <option key={cv} value={cv}>
+              {cv}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="insp-group">
+        <span className="insp-label">Track “{t.name}” gain</span>
+        <input
+          type="range"
+          min={-24}
+          max={12}
+          step={0.5}
+          value={t.gain_db}
+          onChange={(e) => api.setTrackGain(t.id, Number(e.target.value))}
+        />
+        <span className="insp-val">{t.gain_db.toFixed(1)} dB</span>
+      </div>
     </div>
   );
 }
 
 // ---- helpers ----
+
+function drawFade(
+  ctx: CanvasRenderingContext2D,
+  side: "in" | "out",
+  curve: string,
+  fadeFrames: number,
+  sr: number,
+  pps: number,
+  x0: number,
+  top: number,
+  w: number,
+  laneH: number,
+) {
+  if (fadeFrames <= 0) return;
+  const fadeW = Math.min(w, (fadeFrames / sr) * pps);
+  if (fadeW < 1) return;
+  const steps = Math.max(2, Math.min(200, Math.floor(fadeW)));
+  ctx.beginPath();
+  if (side === "in") {
+    ctx.moveTo(x0, top + laneH);
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      ctx.lineTo(x0 + t * fadeW, top + laneH - fadeGain(curve, t) * laneH);
+    }
+    ctx.lineTo(x0, top);
+  } else {
+    const xr = x0 + w;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      ctx.lineTo(
+        xr - fadeW + t * fadeW,
+        top + laneH - fadeGain(curve, 1 - t) * laneH,
+      );
+    }
+    ctx.lineTo(xr, top + laneH);
+    ctx.lineTo(xr, top);
+    ctx.lineTo(xr - fadeW, top);
+  }
+  ctx.closePath();
+  ctx.fillStyle = "rgba(14,17,22,0.55)"; // darken the attenuated region
+  ctx.fill();
+  ctx.strokeStyle = C.snap;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}
 
 function fmtTime(t: number, step: number): string {
   const m = Math.floor(t / 60);

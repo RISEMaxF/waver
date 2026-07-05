@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::model::{Clip, Project, Track};
+use crate::model::{Clip, FadeCurve, FadeSpec, Project, Track};
 
 /// Errors from editing operations.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -102,8 +102,10 @@ impl Project {
         let old_in = clip.source_in;
         // How far the left edge moves (positive = later, trimming off the head).
         let delta = new_timeline_start as i64 - old_start as i64;
-        // New source_in, clamped to [0, source_out-1].
-        let new_in = (old_in as i64 + delta).clamp(0, clip.source_out as i64 - 1) as u64;
+        // New source_in, clamped to [0, source_out-1]. Guard the upper bound so a
+        // zero-length clip (source_out == 0) can't make clamp panic with min > max.
+        let upper = (clip.source_out as i64 - 1).max(0);
+        let new_in = (old_in as i64 + delta).clamp(0, upper) as u64;
         // Recompute the actual applied delta after clamping so start stays consistent.
         let applied = new_in as i64 - old_in as i64;
         clip.source_in = new_in;
@@ -215,6 +217,42 @@ impl Project {
             .find(|t| t.id == track_id)
             .ok_or(EditError::TrackNotFound(track_id))?;
         track.gain_db = gain_db;
+        Ok(())
+    }
+
+    /// Set a clip's fade-in (spec FR-5.1). Length is clamped to the clip length.
+    pub fn set_clip_fade_in(
+        &mut self,
+        clip_id: Uuid,
+        len_frames: u64,
+        curve: FadeCurve,
+    ) -> Result<(), EditError> {
+        let (ti, ci) = self
+            .locate_clip(clip_id)
+            .ok_or(EditError::ClipNotFound(clip_id))?;
+        let clip = &mut self.tracks[ti].clips[ci];
+        clip.fade_in = FadeSpec {
+            len_frames: len_frames.min(clip.len()),
+            curve,
+        };
+        Ok(())
+    }
+
+    /// Set a clip's fade-out (spec FR-5.1). Length is clamped to the clip length.
+    pub fn set_clip_fade_out(
+        &mut self,
+        clip_id: Uuid,
+        len_frames: u64,
+        curve: FadeCurve,
+    ) -> Result<(), EditError> {
+        let (ti, ci) = self
+            .locate_clip(clip_id)
+            .ok_or(EditError::ClipNotFound(clip_id))?;
+        let clip = &mut self.tracks[ti].clips[ci];
+        clip.fade_out = FadeSpec {
+            len_frames: len_frames.min(clip.len()),
+            curve,
+        };
         Ok(())
     }
 }

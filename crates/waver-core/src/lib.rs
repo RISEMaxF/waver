@@ -17,5 +17,6 @@ pub use engine::{
     StreamParams,
 };
 pub use model::{
-    Clip, FadeCurve, FadeSpec, ModelError, PeakPyramid, Project, Source, Track, ValidationError,
+    db_to_linear, Clip, FadeCurve, FadeSpec, ModelError, PeakPyramid, Project, Source, Track,
+    ValidationError,
 };

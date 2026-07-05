@@ -12,7 +12,11 @@ export interface ClipView {
   gain_db: number;
   fade_in_len: number;
   fade_out_len: number;
+  fade_in_curve: string;
+  fade_out_curve: string;
 }
+
+export type FadeCurve = "linear" | "equal_power" | "log";
 
 export interface TrackView {
   id: string;
@@ -55,5 +59,15 @@ export const setClipGain = (clipId: string, gainDb: number) =>
   invoke<ProjectView>("set_clip_gain", { clipId, gainDb });
 export const setTrackGain = (trackId: string, gainDb: number) =>
   invoke<ProjectView>("set_track_gain", { trackId, gainDb });
+export const setClipFadeIn = (
+  clipId: string,
+  lenFrames: number,
+  curve: FadeCurve,
+) => invoke<ProjectView>("set_clip_fade_in", { clipId, lenFrames, curve });
+export const setClipFadeOut = (
+  clipId: string,
+  lenFrames: number,
+  curve: FadeCurve,
+) => invoke<ProjectView>("set_clip_fade_out", { clipId, lenFrames, curve });
 export const undo = () => invoke<ProjectView>("undo");
 export const redo = () => invoke<ProjectView>("redo");

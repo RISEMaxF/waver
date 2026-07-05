@@ -50,6 +50,11 @@ pub enum ValidationError {
     OverlappingClips { track: Uuid, a: Uuid, b: Uuid },
 }
 
+/// Convert a gain in decibels to a linear amplitude multiplier.
+pub fn db_to_linear(db: f32) -> f32 {
+    10f32.powf(db / 20.0)
+}
+
 /// Shape of a fade envelope. See spec FR-5.1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum FadeCurve {
@@ -59,6 +64,21 @@ pub enum FadeCurve {
     EqualPower,
     /// Logarithmic / exponential curve.
     Log,
+}
+
+impl FadeCurve {
+    /// Fade-in gain multiplier at normalized position `t` in `[0, 1]` (0 at the
+    /// start of the fade, 1 at the end). A fade-out is this evaluated at `1 - t`.
+    pub fn fade_in_gain(self, t: f32) -> f32 {
+        let t = t.clamp(0.0, 1.0);
+        match self {
+            FadeCurve::Linear => t,
+            // sin/cos pair: two equal-power fades cross at constant power (sin²+cos²=1).
+            FadeCurve::EqualPower => (t * std::f32::consts::FRAC_PI_2).sin(),
+            // Quadratic ease-in — a slow, log-like taper.
+            FadeCurve::Log => t * t,
+        }
+    }
 }
 
 /// A fade-in or fade-out specification.
@@ -189,6 +209,42 @@ impl Clip {
     /// Whether this clip's timeline range overlaps `other`'s.
     pub fn overlaps(&self, other: &Clip) -> bool {
         self.timeline_start < other.timeline_end() && other.timeline_start < self.timeline_end()
+    }
+
+    /// Combined fade gain (fade-in × fade-out) at `offset` frames from the clip's
+    /// start (spec FR-5.1). Fades are clamped to the clip length. Returns 1.0 outside
+    /// any fade region.
+    pub fn fade_gain_at(&self, offset: u64) -> f32 {
+        let len = self.len();
+        if len == 0 {
+            return 1.0;
+        }
+        let mut gain = 1.0;
+
+        let fade_in = self.fade_in.len_frames.min(len);
+        if fade_in > 0 && offset < fade_in {
+            let t = offset as f32 / fade_in as f32;
+            gain *= self.fade_in.curve.fade_in_gain(t);
+        }
+
+        let fade_out = self.fade_out.len_frames.min(len);
+        if fade_out > 0 {
+            let fade_out_start = len - fade_out;
+            if offset >= fade_out_start {
+                // t goes 1 -> 0 across the fade-out region.
+                let t = (len - offset) as f32 / fade_out as f32;
+                gain *= self.fade_out.curve.fade_in_gain(t);
+            }
+        }
+
+        gain
+    }
+
+    /// Full per-sample gain at `offset` frames from the clip start: the fade envelope
+    /// times the clip's static gain (spec FR-5.1 + FR-5.2). Track gain is applied
+    /// separately by the mixer.
+    pub fn sample_gain_at(&self, offset: u64) -> f32 {
+        self.fade_gain_at(offset) * db_to_linear(self.gain_db)
     }
 
     /// Split the clip at an absolute timeline frame, producing two contiguous clips
@@ -395,6 +451,63 @@ mod tests {
         assert_eq!(clip.source_out, 1_000);
         assert_eq!(clip.len(), 1_000);
         assert_eq!(clip.timeline_end(), 1_000);
+    }
+
+    #[test]
+    fn linear_fade_endpoints() {
+        let (src, _) = fixture();
+        let mut clip = Clip::new(&src, 0); // len 1000
+        clip.fade_in = FadeSpec {
+            len_frames: 100,
+            curve: FadeCurve::Linear,
+        };
+        clip.fade_out = FadeSpec {
+            len_frames: 100,
+            curve: FadeCurve::Linear,
+        };
+        assert!(clip.fade_gain_at(0).abs() < 1e-6); // silent at very start
+        assert!((clip.fade_gain_at(100) - 1.0).abs() < 1e-3); // full after fade-in
+        assert!((clip.fade_gain_at(500) - 1.0).abs() < 1e-6); // unity in the middle
+        assert!(clip.fade_gain_at(1_000) < 1e-3); // ~silent at the end
+    }
+
+    #[test]
+    fn equal_power_crossfade_is_constant_power() {
+        // At any crossfade position, fade-out of clip A plus fade-in of clip B (both
+        // equal-power) must sum to constant power (spec FR-5.1, ±0.5 dB).
+        let curve = FadeCurve::EqualPower;
+        for i in 0..=10 {
+            let t = i as f32 / 10.0;
+            let fade_in = curve.fade_in_gain(t);
+            let fade_out = curve.fade_in_gain(1.0 - t); // the other clip's fade-out
+            let power = fade_in * fade_in + fade_out * fade_out;
+            let power_db = 10.0 * power.log10();
+            assert!(power_db.abs() <= 0.5, "power at t={t} is {power_db} dB");
+        }
+    }
+
+    #[test]
+    fn fade_clamped_to_clip_length() {
+        let (src, _) = fixture();
+        let mut clip = Clip::new(&src, 0);
+        clip.source_out = 50; // short clip
+        clip.fade_in = FadeSpec {
+            len_frames: 10_000, // longer than the clip
+            curve: FadeCurve::Linear,
+        };
+        // Does not panic and stays within [0, 1].
+        for off in 0..50 {
+            let g = clip.fade_gain_at(off);
+            assert!((0.0..=1.0).contains(&g), "gain {g} out of range at {off}");
+        }
+    }
+
+    #[test]
+    fn sample_gain_includes_clip_gain() {
+        let (src, _) = fixture();
+        let mut clip = Clip::new(&src, 0);
+        clip.gain_db = 6.0206; // ~2x linear
+        assert!((clip.sample_gain_at(500) - 2.0).abs() < 1e-2);
     }
 
     #[test]

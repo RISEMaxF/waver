@@ -15,7 +15,7 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_store::StoreExt;
 use waver_core::edit::{EditError, History};
 use waver_core::engine::{DeviceInfo, HostInfo, MeterUpdate, StreamParams};
-use waver_core::model::{Project, Source};
+use waver_core::model::{FadeCurve, Project, Source};
 use waver_engine::{InputSession, NativeEngine};
 
 /// The project model plus its undo/redo history, guarded together to keep them
@@ -71,6 +71,13 @@ where
     let st = &mut *guard;
     let mut next = st.project.clone();
     f(&mut next).map_err(|e| e.to_string())?;
+    // Skip no-op edits so they don't pollute the undo history or wipe the redo stack.
+    if next == st.project {
+        return Ok(ProjectView::of(&st.project, &st.history));
+    }
+    // Enforce the §3 invariants (esp. non-overlap) at this single commit choke point,
+    // so no edit can persist an invalid project or pollute the undo history.
+    next.validate().map_err(|e| e.to_string())?;
     st.history.snapshot(&st.project);
     st.project = next;
     Ok(ProjectView::of(&st.project, &st.history))
@@ -133,6 +140,25 @@ pub struct ClipView {
     pub gain_db: f32,
     pub fade_in_len: u64,
     pub fade_out_len: u64,
+    pub fade_in_curve: String,
+    pub fade_out_curve: String,
+}
+
+fn curve_str(c: FadeCurve) -> String {
+    match c {
+        FadeCurve::Linear => "linear",
+        FadeCurve::EqualPower => "equal_power",
+        FadeCurve::Log => "log",
+    }
+    .to_string()
+}
+
+fn parse_curve(s: &str) -> FadeCurve {
+    match s {
+        "equal_power" => FadeCurve::EqualPower,
+        "log" => FadeCurve::Log,
+        _ => FadeCurve::Linear,
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -171,6 +197,8 @@ impl ProjectView {
                             gain_db: c.gain_db,
                             fade_in_len: c.fade_in.len_frames,
                             fade_out_len: c.fade_out.len_frames,
+                            fade_in_curve: curve_str(c.fade_in.curve),
+                            fade_out_curve: curve_str(c.fade_out.curve),
                         })
                         .collect(),
                 })
@@ -458,6 +486,32 @@ pub fn set_track_gain(
 ) -> Result<ProjectView, String> {
     let id = parse_id(&track_id)?;
     apply_edit(&state, |p| p.set_track_gain(id, gain_db))
+}
+
+/// FR-5.1 — set a clip's fade-in (length in frames + curve).
+#[tauri::command]
+pub fn set_clip_fade_in(
+    state: State<'_, AudioState>,
+    clip_id: String,
+    len_frames: u64,
+    curve: String,
+) -> Result<ProjectView, String> {
+    let id = parse_id(&clip_id)?;
+    let c = parse_curve(&curve);
+    apply_edit(&state, |p| p.set_clip_fade_in(id, len_frames, c))
+}
+
+/// FR-5.1 — set a clip's fade-out (length in frames + curve).
+#[tauri::command]
+pub fn set_clip_fade_out(
+    state: State<'_, AudioState>,
+    clip_id: String,
+    len_frames: u64,
+    curve: String,
+) -> Result<ProjectView, String> {
+    let id = parse_id(&clip_id)?;
+    let c = parse_curve(&curve);
+    apply_edit(&state, |p| p.set_clip_fade_out(id, len_frames, c))
 }
 
 /// FR-4.7 — undo the last edit.
