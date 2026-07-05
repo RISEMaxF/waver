@@ -2,19 +2,23 @@
 //! `waver_core::AudioEngine` boundary (spec §4.2).
 //!
 //! Milestone status:
-//! - M1: device/host enumeration ([`enumerate`]) + live input metering (in progress).
-//! - M2+: capture-to-disk, playback, offline mixdown.
+//! - M1: device/host enumeration ([`enumerate`]) + live input metering.
+//! - M2: clean capture to disk ([`capture`], [`input`]).
+//! - M3+: playback, offline mixdown.
 //!
 //! **Realtime safety (spec §4.4):** the cpal input/output callbacks never allocate,
 //! lock, syscall, or log. Samples cross the callback→consumer boundary via a
-//! lock-free SPSC ring buffer (`rtrb`).
+//! lock-free SPSC ring buffer (`rtrb`); a separate consumer thread meters and writes
+//! to disk.
 
+pub mod capture;
 pub mod enumerate;
+pub mod input;
 pub mod meter;
-pub mod metering;
 
+pub use capture::{RecordingInfo, WavRecorder};
 pub use enumerate::{enumerate_devices, enumerate_hosts};
-pub use metering::{start_metering, MeterHandle};
+pub use input::{open as open_input, InputSession};
 
 use waver_core::engine::{DeviceInfo, EngineError, HostInfo, MeterUpdate, StreamParams};
 
@@ -37,17 +41,18 @@ impl NativeEngine {
         Ok(enumerate_hosts())
     }
 
-    /// Start live input metering (spec FR-2.1). `sink` is called ~50 Hz with a
-    /// [`MeterUpdate`]. The returned [`MeterHandle`] stops metering when dropped.
-    pub fn start_metering<S>(
+    /// Open a live input session: metering (spec FR-2.1) starts immediately and
+    /// recording (spec FR-2.2/2.3/2.4) can be toggled on the returned [`InputSession`].
+    /// `meter_sink` is called ~80 Hz with a [`MeterUpdate`].
+    pub fn open_input<S>(
         &self,
         device_id: &str,
         params: StreamParams,
-        sink: S,
-    ) -> Result<MeterHandle, EngineError>
+        meter_sink: S,
+    ) -> Result<InputSession, EngineError>
     where
         S: Fn(MeterUpdate) + Send + 'static,
     {
-        metering::start_metering(device_id, params, sink)
+        input::open(device_id, params, meter_sink)
     }
 }

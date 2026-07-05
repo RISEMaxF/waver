@@ -17,4 +17,5 @@ name = "waver_engine"
 waver-core = { path = "../waver-core" }
 cpal = { workspace = true }
 rtrb = { workspace = true }
+hound = { workspace = true }
 thiserror = { workspace = true }

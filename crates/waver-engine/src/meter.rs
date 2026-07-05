@@ -1,11 +1,11 @@
-//! Realtime-safe level metering math (spec FR-2.1).
+//! Level metering math (spec FR-2.1).
 //!
-//! Split into two halves:
-//! - [`frame_from_interleaved`] runs *inside* the cpal audio callback. It is
-//!   alloc-free, lock-free, and syscall-free: it reduces an interleaved sample block
-//!   to a fixed-size [`MeterFrame`] (per-channel peak + sum-of-squares) on the stack.
-//! - [`MeterAccumulator`] runs on the (non-realtime) emitter thread. It aggregates
-//!   frames over a display window and converts to dBFS.
+//! Both halves run on the **consumer thread** (not the realtime callback — the
+//! callback only converts samples to f32 and pushes them into the ring, per §4.4):
+//! - [`frame_from_interleaved`] reduces an interleaved sample block to a fixed-size
+//!   [`MeterFrame`] (per-channel peak + sum-of-squares). It is alloc-free anyway.
+//! - [`MeterAccumulator`] aggregates frames over a display window and converts to
+//!   dBFS before the update is emitted.
 
 use cpal::{FromSample, Sample};
 use waver_core::engine::{ChannelLevel, MeterUpdate};
@@ -40,22 +40,11 @@ impl MeterFrame {
     };
 }
 
-/// Reduce an interleaved sample block to a [`MeterFrame`]. **Realtime-safe** and
-/// called from inside the cpal audio callback.
+/// Reduce an interleaved sample block to a [`MeterFrame`] (per-channel peak and
+/// sum-of-squares) using only fixed-size stack arrays. Runs on the consumer thread.
 ///
-/// § Why running this in the callback is RT-safe (spec §4.4):
-/// The §4.4 hard rule is *no heap allocation, no locking, no syscalls, no logging*.
-/// This function does none of those — it writes only to fixed-size stack arrays and
-/// returns a `Copy` value. It performs a bounded `O(block_len)` pass of plain float
-/// arithmetic (abs / max / multiply-add). Note the canonical "just copy samples to
-/// the ring" pattern *also* converts every sample to f32 in the callback; this adds
-/// only ~2–3 float ops per sample on top of that same conversion, so it is not
-/// meaningfully more work — and it moves far less data across the SPSC boundary (one
-/// small summary per block instead of every sample). The raw-samples-to-disk drain
-/// path described in §4.4 is a separate concern that arrives with capture in M2.
-///
-/// Generic over the device sample type `T` (f32/i16/…); samples are converted to
-/// normalized f32 for the level math. `channels` is the interleave stride.
+/// Generic over the sample type `T` (normally f32 from the ring); `channels` is the
+/// interleave stride.
 pub fn frame_from_interleaved<T>(block: &[T], channels: usize) -> MeterFrame
 where
     T: Copy,

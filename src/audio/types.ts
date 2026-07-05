@@ -39,3 +39,14 @@ export interface AudioSettings {
   sample_rate: number | null;
   buffer_frames: number | null;
 }
+
+export interface RecordingResult {
+  source_id: string;
+  clip_id: string;
+  name: string;
+  path: string;
+  channels: number;
+  sample_rate: number;
+  frames: number;
+  duration_secs: number;
+}

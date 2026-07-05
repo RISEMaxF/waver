@@ -346,6 +346,34 @@ impl Project {
         }
         Ok(())
     }
+
+    /// Non-destructively place a freshly recorded [`Source`] on the timeline as a new
+    /// clip (spec FR-2.5 overdub). The clip spans the whole source and starts at
+    /// `timeline_start`. If `track_id` names an existing track the clip is appended
+    /// there; otherwise a new track is created. Existing clips are untouched.
+    /// Returns `(source_id, clip_id)`.
+    pub fn add_recording(
+        &mut self,
+        source: Source,
+        track_id: Option<Uuid>,
+        timeline_start: u64,
+    ) -> (Uuid, Uuid) {
+        let clip = Clip::new(&source, timeline_start);
+        let source_id = source.id;
+        let clip_id = clip.id;
+        self.sources.push(source);
+
+        let track = match track_id.and_then(|id| self.tracks.iter_mut().find(|t| t.id == id)) {
+            Some(track) => track,
+            None => {
+                let name = format!("Track {}", self.tracks.len() + 1);
+                self.tracks.push(Track::new(name));
+                self.tracks.last_mut().expect("just pushed")
+            }
+        };
+        track.clips.push(clip);
+        (source_id, clip_id)
+    }
 }
 
 #[cfg(test)]
@@ -367,6 +395,46 @@ mod tests {
         assert_eq!(clip.source_out, 1_000);
         assert_eq!(clip.len(), 1_000);
         assert_eq!(clip.timeline_end(), 1_000);
+    }
+
+    #[test]
+    fn add_recording_places_overdub_nondestructively() {
+        // Start with a project that already has a track + clip.
+        let (existing_src, mut project) = fixture();
+        let mut track = Track::new("A");
+        let existing_clip = Clip::new(&existing_src, 0);
+        let existing_clip_id = existing_clip.id;
+        track.clips.push(existing_clip);
+        let track_id = track.id;
+        project.tracks.push(track);
+
+        // Record a new source and place it at frame 2000 on a NEW track.
+        let rec = Source::new("/tmp/take2.wav", 2, 48_000, 500);
+        let rec_id = rec.id;
+        let (source_id, clip_id) = project.add_recording(rec, None, 2_000);
+
+        assert_eq!(source_id, rec_id);
+        // The new source exists and the new clip references it at the right spot.
+        assert!(project.source(source_id).is_some());
+        let new_clip = project
+            .tracks
+            .iter()
+            .flat_map(|t| &t.clips)
+            .find(|c| c.id == clip_id)
+            .expect("new clip present");
+        assert_eq!(new_clip.source_id, source_id);
+        assert_eq!(new_clip.timeline_start, 2_000);
+        assert_eq!(new_clip.source_out, 500);
+
+        // Existing clip untouched; a new track was created; project is valid.
+        assert!(project
+            .tracks
+            .iter()
+            .flat_map(|t| &t.clips)
+            .any(|c| c.id == existing_clip_id));
+        assert_eq!(project.tracks.len(), 2);
+        assert_ne!(project.tracks[1].id, track_id);
+        assert_eq!(project.validate(), Ok(()));
     }
 
     #[test]

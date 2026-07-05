@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useAudio } from "./audio/useAudio";
 import { DeviceSelector } from "./components/DeviceSelector";
 import { Meter } from "./components/Meter";
+import { Recorder } from "./components/Recorder";
 import "./App.css";
 
 interface AppInfo {
@@ -57,6 +58,20 @@ function App() {
             onRefresh={audio.refresh}
           />
           <Meter channels={audio.levels} />
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>Recording</h2>
+        <div className="panel-body single">
+          <Recorder
+            recording={audio.recording}
+            elapsed={audio.recElapsed}
+            canRecord={audio.canRecord}
+            takes={audio.takes}
+            onStart={audio.startRec}
+            onStop={audio.stopRec}
+          />
         </div>
       </section>
     </main>

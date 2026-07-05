@@ -6,6 +6,7 @@ import type {
   DeviceInfo,
   HostInfo,
   MeterUpdate,
+  RecordingResult,
   StreamParams,
 } from "./types";
 
@@ -26,19 +27,30 @@ export function saveSettings(settings: AudioSettings): Promise<void> {
 }
 
 /**
- * Start live input metering. `onUpdate` fires ~50x/second until {@link stopMetering}
- * is called. Returns once the backend confirms the stream started (or rejects).
+ * Open a live input session. Metering `onUpdate` fires ~80x/second until
+ * {@link closeInput}. Recording can then be toggled on the open session.
+ * Returns once the backend confirms the stream started (or rejects).
  */
-export async function startMetering(
+export async function openInput(
   deviceId: string,
   params: StreamParams,
   onUpdate: (u: MeterUpdate) => void,
 ): Promise<void> {
   const channel = new Channel<MeterUpdate>();
   channel.onmessage = onUpdate;
-  await invoke("start_metering", { deviceId, params, channel });
+  await invoke("open_input", { deviceId, params, channel });
 }
 
-export function stopMetering(): Promise<void> {
-  return invoke("stop_metering");
+export function closeInput(): Promise<void> {
+  return invoke("close_input");
+}
+
+/** Start recording the open input to a fresh WAV. Resolves with its path. */
+export function startRecording(): Promise<string> {
+  return invoke<string>("start_recording");
+}
+
+/** Stop recording; resolves with the take placed on the timeline. */
+export function stopRecording(): Promise<RecordingResult> {
+  return invoke<RecordingResult>("stop_recording");
 }

@@ -34,8 +34,10 @@ pub fn run() {
             app_info,
             commands::list_devices,
             commands::list_hosts,
-            commands::start_metering,
-            commands::stop_metering,
+            commands::open_input,
+            commands::close_input,
+            commands::start_recording,
+            commands::stop_recording,
             commands::load_settings,
             commands::save_settings,
         ])

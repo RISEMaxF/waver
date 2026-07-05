@@ -269,3 +269,110 @@ body {
   font-size: 0.68rem;
   color: var(--muted);
 }
+
+/* ---- Recording ---- */
+.panel-body.single {
+  grid-template-columns: 1fr;
+}
+
+.recorder {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.rec-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.rec-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1.1rem;
+  border-radius: 8px;
+  border: 1px solid var(--edge);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rec-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.rec-btn.start:not(:disabled):hover {
+  border-color: var(--err);
+}
+
+.rec-btn.stop {
+  border-color: var(--err);
+  background: color-mix(in srgb, var(--err) 15%, transparent);
+}
+
+.rec-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--err);
+}
+
+.rec-square {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  background: var(--err);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.rec-time {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.1rem;
+  color: var(--muted);
+}
+
+.rec-time.live {
+  color: var(--err);
+}
+
+.takes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.take {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.55rem 0.85rem;
+  border-top: 1px solid var(--edge);
+  font-size: 0.85rem;
+}
+
+.take:first-child {
+  border-top: none;
+}
+
+.take-name {
+  font-weight: 600;
+}
+
+.take-meta {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}

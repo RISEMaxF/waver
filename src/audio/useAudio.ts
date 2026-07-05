@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  closeInput,
   listDevices,
   loadSettings,
+  openInput,
   saveSettings,
-  startMetering,
-  stopMetering,
+  startRecording,
+  stopRecording,
 } from "./api";
-import type { ChannelLevel, DeviceInfo } from "./types";
+import type { ChannelLevel, DeviceInfo, RecordingResult } from "./types";
 
 /** Pick a sensible default sample rate for a device: keep the saved one if valid,
  *  else prefer 48 kHz, else the device's first supported rate. */
@@ -42,6 +44,9 @@ export function useAudio() {
   const [levels, setLevels] = useState<ChannelLevel[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [recElapsed, setRecElapsed] = useState(0);
+  const [takes, setTakes] = useState<RecordingResult[]>([]);
   const ready = useRef(false);
   // Only persist selections that came from an explicit user action — never a
   // fallback we derived because a saved device was (transiently) absent. Otherwise
@@ -115,7 +120,7 @@ export function useAudio() {
     }).catch((e) => setError(String(e)));
   }, [inputId, outputId, sampleRate, bufferFrames]);
 
-  // (Re)start metering whenever the input stream parameters change.
+  // (Re)open the input (metering) whenever the stream parameters change.
   useEffect(() => {
     if (!inputId || !sampleRate) {
       setLevels([]);
@@ -123,7 +128,7 @@ export function useAudio() {
     }
     let cancelled = false;
     const channels = deviceChannels(selectedInput);
-    startMetering(
+    openInput(
       inputId,
       { sample_rate: sampleRate, channels, buffer_frames: bufferFrames },
       (u) => {
@@ -139,7 +144,8 @@ export function useAudio() {
     return () => {
       cancelled = true;
       setLevels([]);
-      stopMetering().catch(() => {});
+      setRecording(false);
+      closeInput().catch(() => {});
     };
   }, [inputId, sampleRate, bufferFrames, selectedInput]);
 
@@ -189,6 +195,41 @@ export function useAudio() {
     setBufferFrames(frames);
   }, []);
 
+  // Recording elapsed-time ticker while recording.
+  useEffect(() => {
+    if (!recording) {
+      setRecElapsed(0);
+      return;
+    }
+    const started = performance.now();
+    const id = setInterval(
+      () => setRecElapsed((performance.now() - started) / 1000),
+      100,
+    );
+    return () => clearInterval(id);
+  }, [recording]);
+
+  const startRec = useCallback(async () => {
+    try {
+      setError(null);
+      await startRecording();
+      setRecording(true);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, []);
+
+  const stopRec = useCallback(async () => {
+    try {
+      const take = await stopRecording();
+      setTakes((t) => [take, ...t]);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRecording(false);
+    }
+  }, []);
+
   return {
     inputs,
     outputs,
@@ -199,10 +240,16 @@ export function useAudio() {
     levels,
     notice,
     error,
+    recording,
+    recElapsed,
+    takes,
+    canRecord: !!inputId && !!sampleRate,
     selectInput,
     selectOutput,
     selectRate,
     selectBuffer,
     refresh,
+    startRec,
+    stopRec,
   };
 }

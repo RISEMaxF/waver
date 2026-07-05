@@ -1,37 +1,52 @@
-//! Tauri command + streaming surface for M1 (devices + metering).
+//! Tauri command + streaming surface.
 //!
-//! - Discrete request/response actions are `#[tauri::command]`s (spec §4.3).
-//! - Live meter updates stream over a `tauri::ipc::Channel` (spec §4.3 / FR-2.1) —
-//!   never the event system.
-//! - Device/rate/buffer selection persists via `tauri-plugin-store` (FR-1.2); the
-//!   store is accessed only from Rust so no extra capability permission is needed.
+//! - Discrete actions are `#[tauri::command]`s (spec §4.3).
+//! - Live meter updates stream over a `tauri::ipc::Channel` (FR-2.1).
+//! - Device/rate/buffer selection persists via `tauri-plugin-store` (FR-1.2).
+//! - Recording streams to 32-bit float WAV and lands on the timeline as a
+//!   non-destructive overdub (FR-2.2/2.3/2.4/2.5).
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_store::StoreExt;
 use waver_core::engine::{DeviceInfo, HostInfo, MeterUpdate, StreamParams};
-use waver_engine::{MeterHandle, NativeEngine};
+use waver_core::model::{Project, Source};
+use waver_engine::{InputSession, NativeEngine};
 
-/// App-wide audio state held in Tauri's managed state. `Send + Sync` so it can live
-/// behind `State`.
-#[derive(Default)]
+/// App-wide audio + project state (Tauri managed state; `Send + Sync`).
 pub struct AudioState {
     engine: NativeEngine,
-    /// The active metering session, if any.
-    meter: Mutex<Option<MeterHandle>>,
+    /// The open input session (metering + capture), if any.
+    session: Mutex<Option<InputSession>>,
+    /// Path of the file currently being recorded, if any.
+    recording_path: Mutex<Option<std::path::PathBuf>>,
+    /// The non-destructive project model.
+    project: Mutex<Project>,
+    /// Monotonic take counter for friendly names.
+    takes: AtomicU64,
+}
+
+impl Default for AudioState {
+    fn default() -> Self {
+        Self {
+            engine: NativeEngine::new(),
+            session: Mutex::new(None),
+            recording_path: Mutex::new(None),
+            project: Mutex::new(Project::new(48_000)),
+            takes: AtomicU64::new(0),
+        }
+    }
 }
 
 impl AudioState {
-    fn stop_metering(&self) {
-        // Take the handle out and release the lock BEFORE the blocking stop()/join,
-        // so we never hold the mutex across a join.
-        let handle = self.meter.lock().expect("meter mutex poisoned").take();
-        if let Some(mut handle) = handle {
-            handle.stop();
-        }
+    fn close_session(&self) {
+        // Drop outside the lock hold across the blocking join.
+        let session = self.session.lock().expect("session mutex poisoned").take();
+        drop(session);
     }
 }
 
@@ -42,6 +57,19 @@ pub struct AudioSettings {
     pub output_device_id: Option<String>,
     pub sample_rate: Option<u32>,
     pub buffer_frames: Option<u32>,
+}
+
+/// A finished recording placed on the timeline (returned to the frontend).
+#[derive(Debug, Clone, Serialize)]
+pub struct RecordingResult {
+    pub source_id: String,
+    pub clip_id: String,
+    pub name: String,
+    pub path: String,
+    pub channels: u16,
+    pub sample_rate: u32,
+    pub frames: u64,
+    pub duration_secs: f64,
 }
 
 const SETTINGS_FILE: &str = "settings.json";
@@ -59,33 +87,115 @@ pub fn list_hosts(state: State<'_, AudioState>) -> Result<Vec<HostInfo>, String>
     state.engine.list_hosts().map_err(|e| e.to_string())
 }
 
-/// FR-2.1 — start live input metering; updates stream over `channel` at ~50 Hz.
-/// Any existing session is stopped first.
+/// FR-2.1 — open a live input session; meter updates stream over `channel`.
+/// Any existing session is closed first.
 #[tauri::command]
-pub fn start_metering(
+pub fn open_input(
     state: State<'_, AudioState>,
     device_id: String,
     params: StreamParams,
     channel: Channel<MeterUpdate>,
 ) -> Result<(), String> {
-    state.stop_metering();
-    let handle = state
+    state.close_session();
+    let session = state
         .engine
-        .start_metering(&device_id, params, move |update| {
-            // Channel::send is non-blocking and cheap; ignore transient send errors
-            // (e.g. the frontend dropped the channel mid-teardown).
+        .open_input(&device_id, params, move |update| {
             let _ = channel.send(update);
         })
         .map_err(|e| e.to_string())?;
-    *state.meter.lock().expect("meter mutex poisoned") = Some(handle);
+    *state.session.lock().expect("session mutex poisoned") = Some(session);
     Ok(())
 }
 
-/// FR-2.1 — stop live input metering.
+/// Close the live input session (stops metering + any recording).
 #[tauri::command]
-pub fn stop_metering(state: State<'_, AudioState>) -> Result<(), String> {
-    state.stop_metering();
+pub fn close_input(state: State<'_, AudioState>) -> Result<(), String> {
+    state.close_session();
+    *state
+        .recording_path
+        .lock()
+        .expect("rec path mutex poisoned") = None;
     Ok(())
+}
+
+/// FR-2.2/2.3 — start recording the open input to a fresh WAV in the app data dir.
+#[tauri::command]
+pub fn start_recording(app: AppHandle, state: State<'_, AudioState>) -> Result<String, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("recordings");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    let n = state.takes.load(Ordering::SeqCst) + 1;
+    // Unique filename (monotonic counter + wall clock for collision safety).
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let path = dir.join(format!("take-{n:03}-{stamp}.wav"));
+
+    let guard = state.session.lock().expect("session mutex poisoned");
+    let session = guard.as_ref().ok_or("no input device is open")?;
+    session
+        .start_recording(path.clone())
+        .map_err(|e| e.to_string())?;
+    drop(guard);
+
+    *state
+        .recording_path
+        .lock()
+        .expect("rec path mutex poisoned") = Some(path.clone());
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// FR-2.2/2.5 — stop recording, finalize the WAV, and place it on the timeline.
+#[tauri::command]
+pub fn stop_recording(state: State<'_, AudioState>) -> Result<RecordingResult, String> {
+    let info = {
+        let guard = state.session.lock().expect("session mutex poisoned");
+        let session = guard.as_ref().ok_or("no input device is open")?;
+        session.stop_recording().map_err(|e| e.to_string())?
+    };
+    *state
+        .recording_path
+        .lock()
+        .expect("rec path mutex poisoned") = None;
+
+    let n = state.takes.fetch_add(1, Ordering::SeqCst) + 1;
+    let name = format!("Take {n}");
+    let duration_secs = info.frames as f64 / info.sample_rate.max(1) as f64;
+
+    // Place the recording on the timeline non-destructively (FR-2.5).
+    let source = Source::new(
+        info.path.clone(),
+        info.channels,
+        info.sample_rate,
+        info.frames,
+    );
+    let (source_id, clip_id) = {
+        let mut project = state.project.lock().expect("project mutex poisoned");
+        // Append at the end of the (single) recording track, or a new track.
+        let track_id = project.tracks.first().map(|t| t.id);
+        let start = project
+            .tracks
+            .first()
+            .and_then(|t| t.clips.iter().map(|c| c.timeline_end()).max())
+            .unwrap_or(0);
+        project.add_recording(source, track_id, start)
+    };
+
+    Ok(RecordingResult {
+        source_id: source_id.to_string(),
+        clip_id: clip_id.to_string(),
+        name,
+        path: info.path.to_string_lossy().to_string(),
+        channels: info.channels,
+        sample_rate: info.sample_rate,
+        frames: info.frames,
+        duration_secs,
+    })
 }
 
 /// FR-1.2 — load persisted device/stream selection.
