@@ -49,4 +49,6 @@ export interface RecordingResult {
   sample_rate: number;
   frames: number;
   duration_secs: number;
+  timeline_start: number;
+  xrun: boolean;
 }

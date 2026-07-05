@@ -38,6 +38,7 @@ pub fn run() {
             commands::close_input,
             commands::start_recording,
             commands::stop_recording,
+            commands::get_waveform_peaks,
             commands::load_settings,
             commands::save_settings,
         ])

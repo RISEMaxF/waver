@@ -26,6 +26,26 @@ Legend: ⬜ not yet checked · ✅ passed · ❌ failed (add notes)
   Record for 30 min; confirm app RSS growth < 200 MB (proves streaming, not RAM
   accumulation) and the file opens with correct duration/rate/channels.
 
+- ⬜ **Device unplugged mid-recording (partial — full UX is M8/NFR-5).**
+  If you pull the interface while recording, the WAV is finalized (valid) and the
+  take is preserved (retrievable), but the timeline won't auto-place it and there's
+  no on-screen "device lost" notice yet — that lands in M8. Confirm the file exists
+  and is playable; the polished handling is tracked for M8.
+
+---
+
+## M3 — Waveforms
+
+- ⬜ **FR-3.2 waveform matches a reference.** Record (or import) a known file, open it
+  in Audacity, and compare the rendered Waver waveform shape to Audacity's for the
+  same file. They should match visually. Peak math is unit-tested; this is the visual
+  cross-check.
+- ⬜ **FR-3.2/3.3 zoom & scroll feel.** Zoom from whole-file to sample-adjacent
+  (Ctrl/Cmd + scroll) and horizontal-scroll; confirm it stays smooth and the playhead
+  under the cursor keeps its timeline position while zooming.
+- ⬜ **FR-3.3 playhead sync** — deferred: real playback is M6, so for now the playhead
+  is a click-to-set scrub position only. A/V sync sign-off happens in M6.
+
 ---
 
 <!-- Later milestones append below. -->

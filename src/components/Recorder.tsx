@@ -44,7 +44,18 @@ export function Recorder(props: Props) {
         <ul className="takes">
           {props.takes.map((t) => (
             <li key={t.clip_id} className="take">
-              <span className="take-name">{t.name}</span>
+              <span className="take-name">
+                {t.name}
+                {t.xrun && (
+                  <span
+                    className="take-warn"
+                    title="Samples were dropped during capture"
+                  >
+                    {" "}
+                    ⚠ dropped samples
+                  </span>
+                )}
+              </span>
               <span className="take-meta">
                 {t.duration_secs.toFixed(1)}s · {t.channels}ch ·{" "}
                 {(t.sample_rate / 1000).toFixed(1)}kHz

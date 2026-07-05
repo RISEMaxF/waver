@@ -15,10 +15,12 @@ pub mod capture;
 pub mod enumerate;
 pub mod input;
 pub mod meter;
+pub mod peaks;
 
 pub use capture::{RecordingInfo, WavRecorder};
 pub use enumerate::{enumerate_devices, enumerate_hosts};
 pub use input::{open as open_input, InputSession};
+pub use peaks::{build_pyramid, encode_pyramid, generate_for_wav};
 
 use waver_core::engine::{DeviceInfo, EngineError, HostInfo, MeterUpdate, StreamParams};
 

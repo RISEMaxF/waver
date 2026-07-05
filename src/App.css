@@ -376,3 +376,61 @@ body {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+
+/* ---- Waveform timeline ---- */
+.panel-body.flush {
+  padding: 0;
+}
+
+.waveform {
+  display: flex;
+  flex-direction: column;
+}
+
+.wave-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.85rem;
+  border-bottom: 1px solid var(--edge);
+}
+
+.wave-toolbar button {
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--edge);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.wave-toolbar button:hover {
+  border-color: var(--accent);
+}
+
+.wave-info {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.wave-canvas-wrap {
+  width: 100%;
+  overflow: hidden;
+}
+
+.wave-empty {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.take-warn {
+  color: var(--warn);
+  font-weight: 500;
+  font-size: 0.78rem;
+}

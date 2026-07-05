@@ -70,6 +70,10 @@ pub struct RecordingResult {
     pub sample_rate: u32,
     pub frames: u64,
     pub duration_secs: f64,
+    /// Placement on the timeline, in frames (spec FR-2.5).
+    pub timeline_start: u64,
+    /// True if the capture ring overran (dropped samples) during this take.
+    pub xrun: bool,
 }
 
 const SETTINGS_FILE: &str = "settings.json";
@@ -153,15 +157,23 @@ pub fn start_recording(app: AppHandle, state: State<'_, AudioState>) -> Result<S
 /// FR-2.2/2.5 — stop recording, finalize the WAV, and place it on the timeline.
 #[tauri::command]
 pub fn stop_recording(state: State<'_, AudioState>) -> Result<RecordingResult, String> {
-    let info = {
+    let (info, xrun) = {
         let guard = state.session.lock().expect("session mutex poisoned");
         let session = guard.as_ref().ok_or("no input device is open")?;
-        session.stop_recording().map_err(|e| e.to_string())?
+        let info = session.stop_recording().map_err(|e| e.to_string())?;
+        (info, session.had_xrun())
     };
     *state
         .recording_path
         .lock()
         .expect("rec path mutex poisoned") = None;
+
+    // A zero-length recording produces no useful clip — discard the empty file
+    // rather than littering the timeline with an empty source.
+    if info.frames == 0 {
+        let _ = std::fs::remove_file(&info.path);
+        return Err("recording captured no audio".into());
+    }
 
     let n = state.takes.fetch_add(1, Ordering::SeqCst) + 1;
     let name = format!("Take {n}");
@@ -174,7 +186,7 @@ pub fn stop_recording(state: State<'_, AudioState>) -> Result<RecordingResult, S
         info.sample_rate,
         info.frames,
     );
-    let (source_id, clip_id) = {
+    let (source_id, clip_id, start) = {
         let mut project = state.project.lock().expect("project mutex poisoned");
         // Append at the end of the (single) recording track, or a new track.
         let track_id = project.tracks.first().map(|t| t.id);
@@ -183,7 +195,8 @@ pub fn stop_recording(state: State<'_, AudioState>) -> Result<RecordingResult, S
             .first()
             .and_then(|t| t.clips.iter().map(|c| c.timeline_end()).max())
             .unwrap_or(0);
-        project.add_recording(source, track_id, start)
+        let (sid, cid) = project.add_recording(source, track_id, start);
+        (sid, cid, start)
     };
 
     Ok(RecordingResult {
@@ -195,7 +208,31 @@ pub fn stop_recording(state: State<'_, AudioState>) -> Result<RecordingResult, S
         sample_rate: info.sample_rate,
         frames: info.frames,
         duration_secs,
+        timeline_start: start,
+        xrun,
     })
+}
+
+/// FR-3.1 — generate (or fetch) the waveform peak pyramid for a source, returned as
+/// a compact binary blob (bypasses JSON, spec §4.3). See `peaks::encode_pyramid`.
+#[tauri::command]
+pub fn get_waveform_peaks(
+    state: State<'_, AudioState>,
+    source_id: String,
+) -> Result<tauri::ipc::Response, String> {
+    let path = {
+        let project = state.project.lock().expect("project mutex poisoned");
+        project
+            .sources
+            .iter()
+            .find(|s| s.id.to_string() == source_id)
+            .map(|s| s.path.clone())
+            .ok_or("unknown source")?
+    };
+    let pyramid = waver_engine::generate_for_wav(&path).map_err(|e| e.to_string())?;
+    Ok(tauri::ipc::Response::new(waver_engine::encode_pyramid(
+        &pyramid,
+    )))
 }
 
 /// FR-1.2 — load persisted device/stream selection.

@@ -4,6 +4,7 @@ import { useAudio } from "./audio/useAudio";
 import { DeviceSelector } from "./components/DeviceSelector";
 import { Meter } from "./components/Meter";
 import { Recorder } from "./components/Recorder";
+import { WaveformTimeline } from "./components/WaveformTimeline";
 import "./App.css";
 
 interface AppInfo {
@@ -72,6 +73,13 @@ function App() {
             onStart={audio.startRec}
             onStop={audio.stopRec}
           />
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>Timeline</h2>
+        <div className="panel-body single flush">
+          <WaveformTimeline takes={audio.takes} />
         </div>
       </section>
     </main>
