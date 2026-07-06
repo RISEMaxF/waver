@@ -224,6 +224,16 @@ export const IconClose = (p: IconProps) => (
   </Svg>
 );
 
+export const IconGrid = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 4h16v16H4z" />
+    <path
+      d="M10 4v16M16 4v16M4 10h16M4 16h16"
+      strokeWidth={p.strokeWidth ?? 1.4}
+    />
+  </Svg>
+);
+
 export const IconRefresh = (p: IconProps) => (
   <Svg {...p}>
     <path d="M21 12a9 9 0 11-2.6-6.4" />

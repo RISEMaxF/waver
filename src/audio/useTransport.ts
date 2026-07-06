@@ -28,6 +28,17 @@ export function useTransport(opts: {
       .catch(() => {});
   }, [outputId, hasContent, startFrame]);
 
+  // Seek: move the playhead to `frame`; if currently playing, restart audio from there
+  // (click-to-seek). Replacing the Playback session on the backend stops the old one.
+  const seek = useCallback(
+    (frame: number) => {
+      playStartFrame.current = frame;
+      onPosition(frame / sr);
+      if (playing && outputId) play(outputId, frame).catch(() => {});
+    },
+    [playing, outputId, sr, onPosition],
+  );
+
   const togglePause = useCallback(() => {
     setPaused((p) => {
       const next = !p;
@@ -72,5 +83,5 @@ export function useTransport(opts: {
     };
   }, [playing, sr, onPosition]);
 
-  return { playing, paused, startPlay, togglePause, stopPlay };
+  return { playing, paused, startPlay, togglePause, stopPlay, seek };
 }

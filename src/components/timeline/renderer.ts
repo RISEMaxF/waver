@@ -130,32 +130,66 @@ export function drawFade(
   const fadeW = Math.min(w, (fadeFrames / sr) * pps);
   if (fadeW < 1) return;
   const steps = Math.max(2, Math.min(200, Math.floor(fadeW)));
+  const bottom = top + laneH;
+  // Endpoint of the fade at the top edge (the grab handle sits here).
+  const handleX = side === "in" ? x0 + fadeW : x0 + w - fadeW;
+
+  // Shade the removed corner (above the rising / falling curve) so the fade reads at a
+  // glance, Ableton/Audacity-style.
   ctx.beginPath();
   if (side === "in") {
-    ctx.moveTo(x0, top + laneH);
+    ctx.moveTo(x0, bottom);
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
-      ctx.lineTo(x0 + t * fadeW, top + laneH - fadeGain(curve, t) * laneH);
+      ctx.lineTo(x0 + t * fadeW, bottom - fadeGain(curve, t) * laneH);
     }
+    ctx.lineTo(x0 + fadeW, top);
     ctx.lineTo(x0, top);
+  } else {
+    const xr = x0 + w;
+    ctx.moveTo(xr - fadeW, top);
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      ctx.lineTo(
+        xr - fadeW + t * fadeW,
+        bottom - fadeGain(curve, 1 - t) * laneH,
+      );
+    }
+    ctx.lineTo(xr, top);
+  }
+  ctx.closePath();
+  ctx.fillStyle = "rgba(8, 10, 14, 0.55)"; // darken the attenuated region
+  ctx.fill();
+
+  // The fade curve line itself — bright and crisp over any clip color.
+  ctx.beginPath();
+  if (side === "in") {
+    ctx.moveTo(x0, bottom);
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      ctx.lineTo(x0 + t * fadeW, bottom - fadeGain(curve, t) * laneH);
+    }
   } else {
     const xr = x0 + w;
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
       ctx.lineTo(
         xr - fadeW + t * fadeW,
-        top + laneH - fadeGain(curve, 1 - t) * laneH,
+        bottom - fadeGain(curve, 1 - t) * laneH,
       );
     }
-    ctx.lineTo(xr, top + laneH);
-    ctx.lineTo(xr, top);
-    ctx.lineTo(xr - fadeW, top);
   }
-  ctx.closePath();
-  ctx.fillStyle = th.fadeFill; // darken the attenuated region
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.92)";
+  ctx.lineWidth = 1.75;
+  ctx.stroke();
+
+  // Grab handle at the top corner.
+  ctx.beginPath();
+  ctx.arc(handleX, top + 1.5, 3.5, 0, Math.PI * 2);
+  ctx.fillStyle = "#fff";
   ctx.fill();
-  ctx.strokeStyle = th.snap;
-  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = th.clipEdge;
+  ctx.lineWidth = 1;
   ctx.stroke();
 }
 

@@ -22,6 +22,7 @@ import {
   IconCopy,
   IconCut,
   IconDuplicate,
+  IconGrid,
   IconPaste,
   IconPause,
   IconPlay,
@@ -120,6 +121,10 @@ export function WaveformTimeline({
   const [ripple, setRipple] = useState(false);
   const [cursor, setCursor] = useState("default");
   const [armedTrackId, setArmedTrackId] = useState<string | null>(null);
+  // Beat grid (Ableton-style): a toggleable background grid the playhead + edits snap to.
+  const [beatGrid, setBeatGrid] = useState(false);
+  const [bpm, setBpm] = useState(120);
+  const [gridDiv, setGridDiv] = useState(4); // steps per beat (4 = sixteenth notes)
   const [, tick] = useState(0);
   // Snapshot of where/when the current recording began (for the live overlay).
   const recStartSec = useRef(0);
@@ -129,13 +134,22 @@ export function WaveformTimeline({
   const sr = project?.sample_rate ?? 48000;
   const clipLen = (c: ClipView) => c.source_out - c.source_in;
 
-  const { playing, paused, startPlay, togglePause, stopPlay } = useTransport({
-    outputId,
-    hasContent: !!project && project.tracks.length > 0,
-    startFrame: Math.round(playheadSec * sr),
-    sr,
-    onPosition: setPlayheadSec,
-  });
+  // Beat grid: seconds per step (subdivision). 4/4 assumed. `snapToGrid` rounds a time
+  // to the nearest step when the grid is on (used for the playhead + edit snapping).
+  const stepSec = 60 / bpm / gridDiv;
+  const snapToGrid = useCallback(
+    (sec: number) => (beatGrid ? Math.round(sec / stepSec) * stepSec : sec),
+    [beatGrid, stepSec],
+  );
+
+  const { playing, paused, startPlay, togglePause, stopPlay, seek } =
+    useTransport({
+      outputId,
+      hasContent: !!project && project.tracks.length > 0,
+      startFrame: Math.round(playheadSec * sr),
+      sr,
+      onPosition: setPlayheadSec,
+    });
 
   // If the armed track is deleted, clear the arm. Don't force an arm otherwise, so
   // toggling R off stays off (recording with nothing armed is handled by the backend,
@@ -263,7 +277,11 @@ export function WaveformTimeline({
   // ---- Snapping ----
   const snapSec = useCallback(
     (sec: number, step: number): number => {
-      const candidates: number[] = [playheadSec, Math.round(sec / step) * step];
+      // With the beat grid on, snap to the nearest beat step; otherwise the time grid.
+      const gridCandidate = beatGrid
+        ? Math.round(sec / stepSec) * stepSec
+        : Math.round(sec / step) * step;
+      const candidates: number[] = [playheadSec, gridCandidate];
       const dragged =
         drag.current && "clipId" in drag.current ? drag.current.clipId : null;
       for (const t of project?.tracks ?? []) {
@@ -286,7 +304,7 @@ export function WaveformTimeline({
       }
       return Math.max(0, best);
     },
-    [project, sr, pps, playheadSec],
+    [project, sr, pps, playheadSec, beatGrid, stepSec],
   );
 
   // ---- Draw ----
@@ -318,11 +336,31 @@ export function WaveformTimeline({
     const first = Math.ceil(scrollSec / step) * step;
     for (let t = first; (t - scrollSec) * pps <= width; t += step) {
       const x = Math.round((t - scrollSec) * pps) + 0.5;
-      ctx.beginPath();
-      ctx.moveTo(x, RULER_HEIGHT);
-      ctx.lineTo(x, height);
-      ctx.stroke();
+      if (!beatGrid) {
+        ctx.beginPath();
+        ctx.moveTo(x, RULER_HEIGHT);
+        ctx.lineTo(x, height);
+        ctx.stroke();
+      }
       ctx.fillText(fmtTime(t, step), x + 3, 14);
+    }
+
+    // Beat grid (bar / beat / step lines) — 4/4. Bars strongest, steps faintest.
+    if (beatGrid) {
+      const stepsPerBar = gridDiv * 4;
+      ctx.strokeStyle = th.ruler;
+      for (let idx = Math.max(0, Math.ceil(scrollSec / stepSec)); ; idx++) {
+        const x = (idx * stepSec - scrollSec) * pps;
+        if (x > width) break;
+        ctx.globalAlpha =
+          idx % stepsPerBar === 0 ? 0.5 : idx % gridDiv === 0 ? 0.28 : 0.1;
+        const xr = Math.round(x) + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(xr, RULER_HEIGHT);
+        ctx.lineTo(xr, height);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
     }
 
     (project?.tracks ?? []).forEach((track, ti) => {
@@ -535,6 +573,10 @@ export function WaveformTimeline({
     recording,
     recWave,
     armedTrackId,
+    beatGrid,
+    bpm,
+    gridDiv,
+    stepSec,
   ]);
 
   drawRef.current = draw;
@@ -584,6 +626,7 @@ export function WaveformTimeline({
     const y = e.clientY - rect.top;
     mouse.current = { x, y };
     const hit = hitTest(x, y);
+    const clickedSec = Math.max(0, xToSec(x));
     if (hit) {
       setSelected(hit.clip.id);
       const id = hit.clip.id;
@@ -595,15 +638,19 @@ export function WaveformTimeline({
         drag.current = { kind: "fade-in", clipId: id };
       else if (hit.zone === "fade-out")
         drag.current = { kind: "fade-out", clipId: id };
-      else
+      else {
+        // Click on a clip body: move the playhead there (seeking if playing) so the
+        // playhead follows your click, then arm a move-drag.
+        seek(Math.round(snapToGrid(clickedSec) * sr));
         drag.current = {
           kind: "move",
           clipId: id,
           grabSec: xToSec(x) - hit.clip.timeline_start / sr,
         };
+      }
     } else {
       setSelected(null);
-      setPlayheadSec(Math.max(0, xToSec(x)));
+      seek(Math.round(snapToGrid(clickedSec) * sr));
       drag.current = { kind: "scrub" };
     }
     tick((n) => n + 1);
@@ -614,7 +661,7 @@ export function WaveformTimeline({
     mouse.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     if (drag.current) {
       if (drag.current.kind === "scrub")
-        setPlayheadSec(Math.max(0, xToSec(mouse.current.x)));
+        setPlayheadSec(snapToGrid(Math.max(0, xToSec(mouse.current.x))));
       drawRef.current();
     } else {
       // Cursor affordance: telegraph what a drag here would do.
@@ -671,6 +718,9 @@ export function WaveformTimeline({
         Math.round((clipEndSec - xToSec(mouse.current.x)) * sr),
       );
       api.setFadeOut(clip.id, lenFrames, clip.fade_out_curve as FadeCurve);
+    } else if (d.kind === "scrub") {
+      // Settle the playhead at the final scrub position (and seek there if playing).
+      seek(Math.round(snapToGrid(Math.max(0, xToSec(mouse.current.x))) * sr));
     }
     tick((n) => n + 1);
   };
@@ -975,6 +1025,53 @@ export function WaveformTimeline({
         >
           <IconZoomOut />
         </button>
+        <span className="tb-sep" />
+        <div
+          className="grid-controls"
+          title="Beat grid — playhead & edits snap to it"
+        >
+          <button
+            type="button"
+            className={`tbtn${beatGrid ? " active" : ""}`}
+            onClick={() => setBeatGrid((g) => !g)}
+            aria-pressed={beatGrid}
+          >
+            <IconGrid />
+            <span>Grid</span>
+          </button>
+          {beatGrid && (
+            <>
+              <input
+                type="number"
+                className="grid-bpm"
+                min={20}
+                max={300}
+                value={bpm}
+                onChange={(e) =>
+                  setBpm(
+                    Math.min(300, Math.max(20, Number(e.target.value) || 120)),
+                  )
+                }
+                title="Tempo (BPM)"
+                aria-label="Tempo in BPM"
+              />
+              <span className="grid-unit">BPM</span>
+              <select
+                className="grid-div"
+                value={gridDiv}
+                onChange={(e) => setGridDiv(Number(e.target.value))}
+                title="Grid resolution (steps per beat)"
+                aria-label="Grid resolution"
+              >
+                <option value={1}>1/4</option>
+                <option value={2}>1/8</option>
+                <option value={3}>1/8T</option>
+                <option value={4}>1/16</option>
+                <option value={8}>1/32</option>
+              </select>
+            </>
+          )}
+        </div>
         <span className="tb-sep" />
         <button
           type="button"
