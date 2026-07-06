@@ -54,6 +54,19 @@ fn supported_channels_and_rates(
             .unwrap_or_default(),
     };
 
+    // The supported-configs query can fail on some CoreAudio devices
+    // (kAudioHardwareUnknownPropertyError). Fall back to the device's default config so
+    // the device still reports a usable channel count + rate instead of nothing.
+    if ranges.is_empty() {
+        let def = match direction {
+            DeviceDirection::Input => dev.default_input_config().ok(),
+            DeviceDirection::Output => dev.default_output_config().ok(),
+        };
+        if let Some(c) = def {
+            return (vec![c.channels()], vec![c.sample_rate()]);
+        }
+    }
+
     let mut channels = BTreeSet::new();
     for (ch, _, _) in &ranges {
         channels.insert(*ch);

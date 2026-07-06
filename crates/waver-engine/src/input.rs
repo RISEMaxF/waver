@@ -151,9 +151,18 @@ fn pick_input_format(
     dev: &cpal::Device,
     params: &StreamParams,
 ) -> Result<SampleFormat, EngineError> {
-    let configs = dev
-        .supported_input_configs()
-        .map_err(|e| EngineError::Backend(e.to_string()))?;
+    // Some CoreAudio devices intermittently fail the supported-configs query with
+    // `kAudioHardwareUnknownPropertyError`. Fall back to the device's default config
+    // (a more reliable query) rather than failing the whole open.
+    let configs = match dev.supported_input_configs() {
+        Ok(c) => c,
+        Err(_) => {
+            let def = dev
+                .default_input_config()
+                .map_err(|e| EngineError::Backend(e.to_string()))?;
+            return Ok(def.sample_format());
+        }
+    };
     let mut available: Vec<SampleFormat> = Vec::new();
     for range in configs {
         if range.channels() == params.channels
