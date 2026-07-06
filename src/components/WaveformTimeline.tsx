@@ -1043,6 +1043,13 @@ export function WaveformTimeline({
     api.duplicate(c.id, freeStartOn(track, wanted, len));
   }, [project, selected, playheadSec, sr, api]);
 
+  // Arm the selected clip's track (the DAW-standard 'R' shortcut).
+  const armSelected = useCallback(() => {
+    const t = selected ? trackOfClip(selected) : null;
+    if (t) toggleArm(t.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, project, toggleArm]);
+
   // ---- Keyboard shortcuts (registered once; reads latest via a ref) ----
   const kb = useRef({
     api,
@@ -1056,6 +1063,7 @@ export function WaveformTimeline({
     cutSel,
     pasteAtPlayhead,
     duplicateSel,
+    armSelected,
   });
   kb.current = {
     api,
@@ -1069,6 +1077,7 @@ export function WaveformTimeline({
     cutSel,
     pasteAtPlayhead,
     duplicateSel,
+    armSelected,
   };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1099,6 +1108,8 @@ export function WaveformTimeline({
           k.api.del(k.selected, k.ripple);
           setSelected(null);
         }
+      } else if (key === "r" && !mod) {
+        k.armSelected();
       } else if (key === "s" && !mod) {
         k.splitAtPlayhead();
       } else if (e.key === " ") {
