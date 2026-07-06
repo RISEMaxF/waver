@@ -234,6 +234,27 @@ export const IconGrid = (p: IconProps) => (
   </Svg>
 );
 
+export const IconMute = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 9v6h4l5 4V5L8 9z" />
+    <path d="M16 9l5 5M21 9l-5 5" />
+  </Svg>
+);
+
+export const IconSolo = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 13v-1a8 8 0 0116 0v1" />
+    <rect x="3" y="13" width="4" height="7" rx="1.5" />
+    <rect x="17" y="13" width="4" height="7" rx="1.5" />
+  </Svg>
+);
+
+export const IconChevronDown = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M6 9l6 6 6-6" />
+  </Svg>
+);
+
 export const IconRefresh = (p: IconProps) => (
   <Svg {...p}>
     <path d="M21 12a9 9 0 11-2.6-6.4" />

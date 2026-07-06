@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ask } from "@tauri-apps/plugin-dialog";
 import type { ProjectApi } from "../../audio/useProject";
 import type { ProjectView } from "../../audio/project";
-import { IconClose } from "../icons";
+import { IconClose, IconMute, IconRecord, IconSolo } from "../icons";
 import {
   RULER_HEIGHT,
   TRACK_HEIGHT,
@@ -130,28 +130,31 @@ export function TrackHeaders({
                   type="button"
                   className={`ts-btn arm${armed ? " on" : ""}`}
                   onClick={() => onToggleArm(t.id)}
-                  title="Arm for recording"
+                  title={armed ? "Armed for recording" : "Arm for recording"}
+                  aria-label="Arm for recording"
                   aria-pressed={armed}
                 >
-                  R
+                  <IconRecord size={13} />
                 </button>
                 <button
                   type="button"
                   className={`ts-btn mute${t.muted ? " on" : ""}`}
                   onClick={() => api.setTrackMuted(t.id, !t.muted)}
                   title="Mute"
+                  aria-label="Mute"
                   aria-pressed={t.muted}
                 >
-                  M
+                  <IconMute size={15} />
                 </button>
                 <button
                   type="button"
                   className={`ts-btn solo${t.soloed ? " on" : ""}`}
                   onClick={() => api.setTrackSoloed(t.id, !t.soloed)}
                   title="Solo"
+                  aria-label="Solo"
                   aria-pressed={t.soloed}
                 >
-                  S
+                  <IconSolo size={15} />
                 </button>
               </div>
               <div className="track-head-gain">
