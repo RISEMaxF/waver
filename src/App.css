@@ -1168,23 +1168,51 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
 }
 
 /* ==================== Inspector (bottom bar, selection-driven) ==================== */
+/* Ableton-style clip view: labeled panels separated by dividers, controls stacked. */
 .inspector {
   flex-shrink: 0;
   display: flex;
-  flex-wrap: wrap;
+  align-items: stretch;
   gap: var(--space-4);
   padding: var(--space-2) var(--space-3);
   border-top: 1px solid var(--color-border);
   background: var(--color-panel);
-  align-items: center;
+  overflow-x: auto;
 }
 
 .inspector.empty {
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
+  padding: var(--space-3);
 }
 
-.insp-group {
+.insp-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-right: var(--space-4);
+  border-right: 1px solid var(--color-border);
+}
+
+.insp-panel:last-child {
+  border-right: none;
+  padding-right: 0;
+}
+
+.insp-panel-clip {
+  min-width: 15rem;
+}
+
+.insp-title {
+  margin: 0 0 1px;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--color-text-muted);
+}
+
+.insp-row {
   display: flex;
   align-items: center;
   gap: 0.4rem;
@@ -1193,11 +1221,12 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
 .insp-label {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
+  min-width: 1.8rem;
 }
 
 .insp-name {
-  width: 11rem;
-  height: 28px;
+  width: 100%;
+  height: 26px;
   padding: 0 0.5rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
@@ -1213,10 +1242,16 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   font-variant-numeric: tabular-nums;
 }
 
+.insp-trackname {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
 .insp-val {
   font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
   min-width: 3.5rem;
+  text-align: right;
 }
 
 .insp-unit {

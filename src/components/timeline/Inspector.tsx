@@ -70,79 +70,91 @@ export function Inspector({ project, selected, api, sr }: Props) {
 
   return (
     <div className="inspector">
-      <div className="insp-group">
+      <section className="insp-panel insp-panel-clip">
+        <h4 className="insp-title">Clip</h4>
         <NameField
           key={clip.id}
           value={clip.name}
           onCommit={(n) => api.setClipName(clip.id, n)}
         />
-      </div>
-      {src && (
-        <span className="insp-meta">
-          {chLabel} · {(src.sample_rate / 1000).toFixed(1)} kHz ·{" "}
-          {lenSec.toFixed(2)}s
-        </span>
-      )}
-      <div className="insp-group">
-        <label className="insp-label" htmlFor="insp-clip-gain">
-          Clip gain
-        </label>
-        <input
-          id="insp-clip-gain"
-          type="range"
-          min={-24}
-          max={12}
-          step={0.5}
+        {src && (
+          <span className="insp-meta">
+            {chLabel} · {(src.sample_rate / 1000).toFixed(1)} kHz ·{" "}
+            {lenSec.toFixed(2)}s
+          </span>
+        )}
+        <GainRow
           value={clip.gain_db}
-          onChange={(e) => api.setClipGain(clip.id, Number(e.target.value))}
+          onChange={(v) => api.setClipGain(clip.id, v)}
         />
-        <span className="insp-val">{clip.gain_db.toFixed(1)} dB</span>
-      </div>
+      </section>
 
-      <FadeControls
-        label="Fade in"
-        idBase="fade-in"
-        lenMs={msFrom(clip.fade_in_len)}
-        curve={clip.fade_in_curve as FadeCurve}
-        onLen={(ms) =>
-          api.setFadeIn(
-            clip.id,
-            framesFrom(ms),
-            clip.fade_in_curve as FadeCurve,
-          )
-        }
-        onCurve={(cv) => api.setFadeIn(clip.id, clip.fade_in_len, cv)}
-      />
-      <FadeControls
-        label="Fade out"
-        idBase="fade-out"
-        lenMs={msFrom(clip.fade_out_len)}
-        curve={clip.fade_out_curve as FadeCurve}
-        onLen={(ms) =>
-          api.setFadeOut(
-            clip.id,
-            framesFrom(ms),
-            clip.fade_out_curve as FadeCurve,
-          )
-        }
-        onCurve={(cv) => api.setFadeOut(clip.id, clip.fade_out_len, cv)}
-      />
+      <section className="insp-panel">
+        <h4 className="insp-title">Fades</h4>
+        <FadeControls
+          label="In"
+          idBase="fade-in"
+          lenMs={msFrom(clip.fade_in_len)}
+          curve={clip.fade_in_curve as FadeCurve}
+          onLen={(ms) =>
+            api.setFadeIn(
+              clip.id,
+              framesFrom(ms),
+              clip.fade_in_curve as FadeCurve,
+            )
+          }
+          onCurve={(cv) => api.setFadeIn(clip.id, clip.fade_in_len, cv)}
+        />
+        <FadeControls
+          label="Out"
+          idBase="fade-out"
+          lenMs={msFrom(clip.fade_out_len)}
+          curve={clip.fade_out_curve as FadeCurve}
+          onLen={(ms) =>
+            api.setFadeOut(
+              clip.id,
+              framesFrom(ms),
+              clip.fade_out_curve as FadeCurve,
+            )
+          }
+          onCurve={(cv) => api.setFadeOut(clip.id, clip.fade_out_len, cv)}
+        />
+      </section>
 
-      <div className="insp-group">
-        <label className="insp-label" htmlFor="insp-track-gain">
-          Track “{track.name}” gain
-        </label>
-        <input
-          id="insp-track-gain"
-          type="range"
-          min={-24}
-          max={12}
-          step={0.5}
+      <section className="insp-panel">
+        <h4 className="insp-title">Track</h4>
+        <span className="insp-meta insp-trackname">{track.name}</span>
+        <GainRow
           value={track.gain_db}
-          onChange={(e) => api.setTrackGain(track.id, Number(e.target.value))}
+          onChange={(v) => api.setTrackGain(track.id, v)}
         />
-        <span className="insp-val">{track.gain_db.toFixed(1)} dB</span>
-      </div>
+      </section>
+    </div>
+  );
+}
+
+/** A compact "Gain [====] 0.0 dB" row; double-click the slider to reset to 0 dB (F37). */
+function GainRow({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div className="insp-row">
+      <label className="insp-label">Gain</label>
+      <input
+        type="range"
+        min={-24}
+        max={12}
+        step={0.5}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        onDoubleClick={() => onChange(0)}
+        title="Double-click to reset to 0 dB"
+      />
+      <span className="insp-val">{value.toFixed(1)} dB</span>
     </div>
   );
 }
@@ -163,7 +175,7 @@ function FadeControls({
   onCurve: (c: FadeCurve) => void;
 }) {
   return (
-    <div className="insp-group">
+    <div className="insp-row">
       <label className="insp-label" htmlFor={`insp-${idBase}-len`}>
         {label}
       </label>
