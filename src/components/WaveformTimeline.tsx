@@ -40,7 +40,6 @@ import {
   drawFade,
   findClip,
   fmtTime,
-  laneTopForY,
   readCanvasTheme,
   type CanvasTheme,
   EDGE_PX,
@@ -49,6 +48,7 @@ import {
   RULER_HEIGHT,
   SNAP_PX,
   TRACK_HEIGHT,
+  COLLAPSED_H,
   trackColor,
 } from "./timeline/renderer";
 
@@ -88,6 +88,18 @@ type Drag =
 type Zone = "trim-start" | "trim-end" | "fade-in" | "fade-out" | "body";
 
 const FADE_ZONE_PX = 22;
+
+// Cumulative lane tops (0-based — the ruler is a separate sticky canvas). Collapsed
+// tracks are short. Returns the top y of each track and the total lanes height.
+function laneLayout(tracks: ProjectView["tracks"], collapsed: Set<string>) {
+  const tops: number[] = [];
+  let acc = 0;
+  for (const t of tracks) {
+    tops.push(acc);
+    acc += collapsed.has(t.id) ? COLLAPSED_H : TRACK_HEIGHT;
+  }
+  return { tops, total: acc || TRACK_HEIGHT };
+}
 
 // bar.beat.step position at `sec` for a 4/4 grid at `bpm` (F12).
 function barsBeats(sec: number, bpm: number, stepSec: number): string {
@@ -131,6 +143,8 @@ export function WaveformTimeline({
   const [ripple, setRipple] = useState(false);
   const [cursor, setCursor] = useState("default");
   const [armedTrackId, setArmedTrackId] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const rulerRef = useRef<HTMLCanvasElement>(null);
   // Beat grid (Ableton-style): a toggleable background grid the playhead + edits snap to.
   const [beatGrid, setBeatGrid] = useState(false);
   const [bpm, setBpm] = useState(120);
@@ -211,6 +225,15 @@ export function WaveformTimeline({
     setArmedTrackId((cur) => (cur === id ? null : id));
   }, []);
 
+  const toggleCollapse = useCallback((id: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
   // Recompute the canvas palette when the theme (data-theme on <html> / OS scheme)
   // changes, then redraw so the timeline follows the theme.
   useEffect(() => {
@@ -270,8 +293,26 @@ export function WaveformTimeline({
     if (selected && project && !findClip(project, selected)) setSelected(null);
   }, [project, selected]);
 
-  const height =
-    RULER_HEIGHT + Math.max(1, project?.tracks.length ?? 1) * TRACK_HEIGHT;
+  // Track index at lane-canvas y (0-based, variable heights); -1 if outside.
+  const trackIndexAtY = useCallback(
+    (y: number): number => {
+      const tracks = project?.tracks ?? [];
+      const { tops, total } = laneLayout(tracks, collapsed);
+      if (y < 0 || y >= total) return -1;
+      for (let i = tracks.length - 1; i >= 0; i--) if (y >= tops[i]) return i;
+      return -1;
+    },
+    [project, collapsed],
+  );
+  // Top y (with the 4px lane pad) of a track index on the lane canvas.
+  const laneTopAt = useCallback(
+    (y: number): number | null => {
+      const ti = trackIndexAtY(y);
+      if (ti < 0) return null;
+      return laneLayout(project?.tracks ?? [], collapsed).tops[ti] + 4;
+    },
+    [project, collapsed, trackIndexAtY],
+  );
 
   const gridStep = useCallback(() => {
     const raw = 80 / pps;
@@ -319,69 +360,119 @@ export function WaveformTimeline({
 
   // ---- Draw ----
   const draw = useCallback(() => {
+    const th = theme.current;
+    const dpr = window.devicePixelRatio || 1;
+    const step = gridStep();
+    const tracks = project?.tracks ?? [];
+    const { tops, total } = laneLayout(tracks, collapsed);
+    const laneHeightOf = (ti: number) => (tops[ti + 1] ?? total) - tops[ti];
+
+    // ---- Sticky ruler (its own fixed-height canvas above the scrolling lanes) ----
+    const rc = rulerRef.current;
+    if (rc) {
+      rc.width = width * dpr;
+      rc.height = RULER_HEIGHT * dpr;
+      rc.style.height = `${RULER_HEIGHT}px`;
+      const rx = rc.getContext("2d");
+      if (rx) {
+        rx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        rx.fillStyle = th.lane;
+        rx.fillRect(0, 0, width, RULER_HEIGHT);
+        rx.fillStyle = th.ruler;
+        rx.font = "10px system-ui, sans-serif";
+        const tick = (x: number) => {
+          rx.strokeStyle = th.grid;
+          rx.lineWidth = 1;
+          rx.beginPath();
+          rx.moveTo(x + 0.5, RULER_HEIGHT - 6);
+          rx.lineTo(x + 0.5, RULER_HEIGHT);
+          rx.stroke();
+        };
+        if (!beatGrid) {
+          const first = Math.ceil(scrollSec / step) * step;
+          for (let t = first; (t - scrollSec) * pps <= width; t += step) {
+            const x = Math.round((t - scrollSec) * pps);
+            tick(x);
+            rx.fillText(fmtTime(t, step), x + 3, 12);
+          }
+        } else {
+          const stepsPerBar = gridDiv * 4;
+          for (let idx = Math.max(0, Math.ceil(scrollSec / stepSec)); ; idx++) {
+            const x = (idx * stepSec - scrollSec) * pps;
+            if (x > width) break;
+            if (idx % stepsPerBar === 0) {
+              tick(Math.round(x));
+              rx.fillText(String(idx / stepsPerBar + 1), Math.round(x) + 3, 12);
+            }
+          }
+        }
+        // bottom divider + playhead handle
+        rx.strokeStyle = th.grid;
+        rx.beginPath();
+        rx.moveTo(0, RULER_HEIGHT - 0.5);
+        rx.lineTo(width, RULER_HEIGHT - 0.5);
+        rx.stroke();
+        const rpx = (playheadSec - scrollSec) * pps;
+        if (rpx >= 0 && rpx <= width) {
+          rx.fillStyle = th.playhead;
+          rx.beginPath();
+          rx.moveTo(rpx - 6, 0);
+          rx.lineTo(rpx + 6, 0);
+          rx.lineTo(rpx, 9);
+          rx.closePath();
+          rx.fill();
+        }
+      }
+    }
+
+    // ---- Lanes canvas (0-based; scrolls vertically) ----
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const dpr = window.devicePixelRatio || 1;
     canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    canvas.style.height = `${height}px`;
+    canvas.height = total * dpr;
+    canvas.style.height = `${total}px`;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const th = theme.current;
     ctx.fillStyle = th.bg;
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, 0, width, total);
 
-    const step = gridStep();
-
-    (project?.tracks ?? []).forEach((_t, i) => {
+    tracks.forEach((_t, i) => {
       ctx.fillStyle = i % 2 ? th.laneAlt : th.lane;
-      ctx.fillRect(0, RULER_HEIGHT + i * TRACK_HEIGHT, width, TRACK_HEIGHT);
+      ctx.fillRect(0, tops[i], width, laneHeightOf(i));
     });
 
-    ctx.fillStyle = th.ruler;
-    ctx.font = "10px system-ui, sans-serif";
+    // Vertical gridlines (full lane height; labels live on the sticky ruler).
     ctx.strokeStyle = th.grid;
     ctx.lineWidth = 1;
-    const first = Math.ceil(scrollSec / step) * step;
-    for (let t = first; (t - scrollSec) * pps <= width; t += step) {
-      const x = Math.round((t - scrollSec) * pps) + 0.5;
-      if (!beatGrid) {
+    if (!beatGrid) {
+      const first = Math.ceil(scrollSec / step) * step;
+      for (let t = first; (t - scrollSec) * pps <= width; t += step) {
+        const x = Math.round((t - scrollSec) * pps) + 0.5;
         ctx.beginPath();
-        ctx.moveTo(x, RULER_HEIGHT);
-        ctx.lineTo(x, height);
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, total);
         ctx.stroke();
-        ctx.fillText(fmtTime(t, step), x + 3, 14);
       }
-    }
-
-    // Beat grid (bar / beat / step lines) — 4/4. Bars strongest, steps faintest.
-    if (beatGrid) {
+    } else {
       const stepsPerBar = gridDiv * 4;
-      ctx.strokeStyle = th.ruler;
-      const barLabels: [number, number][] = []; // [x, barNumber]
       for (let idx = Math.max(0, Math.ceil(scrollSec / stepSec)); ; idx++) {
         const x = (idx * stepSec - scrollSec) * pps;
         if (x > width) break;
-        const isBar = idx % stepsPerBar === 0;
-        ctx.globalAlpha = isBar ? 0.5 : idx % gridDiv === 0 ? 0.28 : 0.1;
+        ctx.globalAlpha =
+          idx % stepsPerBar === 0 ? 0.5 : idx % gridDiv === 0 ? 0.28 : 0.1;
         const xr = Math.round(x) + 0.5;
         ctx.beginPath();
-        ctx.moveTo(xr, RULER_HEIGHT);
-        ctx.lineTo(xr, height);
+        ctx.moveTo(xr, 0);
+        ctx.lineTo(xr, total);
         ctx.stroke();
-        if (isBar) barLabels.push([x, idx / stepsPerBar + 1]);
       }
       ctx.globalAlpha = 1;
-      // Bar numbers on the ruler (replaces the seconds labels while the grid is on).
-      ctx.fillStyle = th.ruler;
-      ctx.font = "10px system-ui, sans-serif";
-      for (const [x, bar] of barLabels) ctx.fillText(String(bar), x + 3, 14);
     }
 
-    (project?.tracks ?? []).forEach((track, ti) => {
-      const laneTop = RULER_HEIGHT + ti * TRACK_HEIGHT + 4;
-      const laneH = TRACK_HEIGHT - 8;
+    tracks.forEach((track, ti) => {
+      const laneTop = tops[ti] + 4;
+      const laneH = laneHeightOf(ti) - 8;
       const tc = track.color ?? trackColor(ti); // track identity color (custom or auto)
       for (const clip of track.clips) {
         const d = drag.current;
@@ -390,7 +481,7 @@ export function WaveformTimeline({
         let ghost = false;
         if (d && d.kind === "move" && d.clipId === clip.id) {
           startSec = snapSec(xToSec(mouse.current.x) - d.grabSec, step);
-          drawTop = laneTopForY(mouse.current.y, project) ?? laneTop;
+          drawTop = laneTopAt(mouse.current.y) ?? laneTop;
           ghost = true;
         }
         let lenSec = clipLen(clip) / sr;
@@ -511,8 +602,8 @@ export function WaveformTimeline({
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 3]);
         ctx.beginPath();
-        ctx.moveTo(x + 0.5, RULER_HEIGHT);
-        ctx.lineTo(x + 0.5, height);
+        ctx.moveTo(x + 0.5, 0);
+        ctx.lineTo(x + 0.5, total);
         ctx.stroke();
         ctx.setLineDash([]);
       }
@@ -538,8 +629,8 @@ export function WaveformTimeline({
       const found = tks.findIndex((t) => t.id === liveId);
       const ti = found >= 0 ? found : 0;
       {
-        const laneTop = RULER_HEIGHT + ti * TRACK_HEIGHT + 4;
-        const laneH = TRACK_HEIGHT - 8;
+        const laneTop = tops[ti] + 4;
+        const laneH = (tops[ti + 1] ?? total) - tops[ti] - 8;
         const mid = laneTop + laneH / 2;
         const start = recStartSec.current;
         const buckets = recWave.current.buckets;
@@ -579,21 +670,13 @@ export function WaveformTimeline({
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(px, 0);
-      ctx.lineTo(px, height);
+      ctx.lineTo(px, total);
       ctx.stroke();
-      // Grabbable handle on the ruler — click/drag the ruler to move the start point.
-      ctx.fillStyle = th.playhead;
-      ctx.beginPath();
-      ctx.moveTo(px - 6, 0);
-      ctx.lineTo(px + 6, 0);
-      ctx.lineTo(px, 9);
-      ctx.closePath();
-      ctx.fill();
     }
   }, [
     project,
+    collapsed,
     width,
-    height,
     pps,
     scrollSec,
     playheadSec,
@@ -602,6 +685,7 @@ export function WaveformTimeline({
     gridStep,
     snapSec,
     xToSec,
+    laneTopAt,
     recording,
     recWave,
     armedTrackId,
@@ -619,11 +703,11 @@ export function WaveformTimeline({
   // ---- Hit testing ----
   const hitTest = useCallback(
     (x: number, y: number): { clip: ClipView; zone: Zone } | null => {
-      if (!project || y < RULER_HEIGHT) return null;
-      const ti = Math.floor((y - RULER_HEIGHT) / TRACK_HEIGHT);
+      if (!project) return null;
+      const ti = trackIndexAtY(y);
       const track = project.tracks[ti];
       if (!track) return null;
-      const laneTop = RULER_HEIGHT + ti * TRACK_HEIGHT + 4;
+      const laneTop = laneLayout(project.tracks, collapsed).tops[ti] + 4;
       const inTopStrip = y <= laneTop + 14;
       for (const clip of track.clips) {
         const x0 = (clip.timeline_start / sr - scrollSec) * pps;
@@ -640,7 +724,7 @@ export function WaveformTimeline({
       }
       return null;
     },
-    [project, sr, scrollSec, pps],
+    [project, sr, scrollSec, pps, collapsed, trackIndexAtY],
   );
 
   const cursorFor = (zone: Zone | null): string =>
@@ -651,6 +735,30 @@ export function WaveformTimeline({
         : zone === "body"
           ? "grab"
           : "default";
+
+  // ---- Ruler scrubbing (sets the playhead / seeks) ----
+  const rulerScrub = useRef(false);
+  const rulerSec = (e: React.MouseEvent) =>
+    Math.max(
+      0,
+      snapToGrid(
+        xToSec(e.clientX - e.currentTarget.getBoundingClientRect().left),
+      ),
+    );
+  const onRulerDown = (e: React.MouseEvent) => {
+    seek(Math.round(rulerSec(e) * sr));
+    rulerScrub.current = true;
+  };
+  const onRulerMove = (e: React.MouseEvent) => {
+    if (!rulerScrub.current) return;
+    setPlayheadSec(rulerSec(e));
+    drawRef.current();
+  };
+  const onRulerUp = (e: React.MouseEvent) => {
+    if (!rulerScrub.current) return;
+    rulerScrub.current = false;
+    seek(Math.round(rulerSec(e) * sr));
+  };
 
   const onMouseDown = (e: React.MouseEvent) => {
     const rect = canvasRef.current!.getBoundingClientRect();
@@ -715,7 +823,7 @@ export function WaveformTimeline({
     const clip = findClip(project, "clipId" in d ? d.clipId : "");
     if (d.kind === "move" && clip) {
       const startSec = snapSec(xToSec(mouse.current.x) - d.grabSec, step);
-      const ti = Math.floor((mouse.current.y - RULER_HEIGHT) / TRACK_HEIGHT);
+      const ti = trackIndexAtY(mouse.current.y);
       const track =
         project.tracks[ti] ??
         project.tracks.find((t) => t.clips.some((c) => c.id === clip.id));
@@ -800,12 +908,9 @@ export function WaveformTimeline({
     const rect = el.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    // Clamp into the lane range so a drop on the ruler lands on the first track (not
-    // the last, which the raw index -1 fallback would pick).
-    const ti = Math.min(
-      project.tracks.length - 1,
-      Math.max(0, Math.floor((y - RULER_HEIGHT) / TRACK_HEIGHT)),
-    );
+    // Clamp into the lane range so a drop above/below lands on a valid track.
+    const raw = trackIndexAtY(y);
+    const ti = raw >= 0 ? raw : project.tracks.length - 1;
     const track = project.tracks[ti];
     if (!track) return;
     const start = freeStartOn(
@@ -833,6 +938,8 @@ export function WaveformTimeline({
 
   const onWheel = (e: React.WheelEvent) => {
     if (e.ctrlKey || e.metaKey) {
+      // Zoom horizontally around the cursor.
+      e.preventDefault();
       const rect = canvasRef.current!.getBoundingClientRect();
       const cur = scrollSec + (e.clientX - rect.left) / pps;
       const np = Math.min(
@@ -841,8 +948,10 @@ export function WaveformTimeline({
       );
       setScrollSec(Math.max(0, cur - (e.clientX - rect.left) / np));
       setPps(np);
-    } else {
-      setScrollSec((s) => Math.max(0, s + (e.deltaX || e.deltaY) / pps));
+    } else if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+      // Horizontal intent → pan the timeline; vertical wheel is left to scroll the
+      // lanes natively (the scroll container).
+      setScrollSec((s) => Math.max(0, s + e.deltaX / pps));
     }
   };
 
@@ -1226,40 +1335,58 @@ export function WaveformTimeline({
         </span>
       </div>
       <div className="wave-body">
-        <TrackHeaders
-          project={project}
-          api={api}
-          armedTrackId={armedTrackId}
-          onToggleArm={toggleArm}
-        />
-        <div
-          className="wave-canvas-wrap"
-          ref={wrapRef}
-          onDragOver={onCanvasDragOver}
-          onDrop={onCanvasDrop}
-        >
-          {!project || (project.tracks.length === 0 && !recording) ? (
-            <p className="wave-empty">
-              Record, import, or drag a file from the pool to start your
-              timeline.
-            </p>
-          ) : (
-            <canvas
-              ref={canvasRef}
-              role="application"
-              aria-label="Timeline editor"
-              style={{
-                width: "100%",
-                cursor: drag.current ? "grabbing" : cursor,
-              }}
-              onMouseDown={onMouseDown}
-              onMouseMove={onMouseMove}
-              onMouseUp={onMouseUp}
-              onMouseLeave={onMouseUp}
-              onDoubleClick={onDoubleClick}
-              onWheel={onWheel}
-            />
-          )}
+        {/* Sticky ruler row: a fixed spacer over the track headers + the ruler canvas,
+            outside the vertical scroll so the time/bar labels stay visible. */}
+        <div className="wave-ruler-row">
+          <div className="wave-ruler-spacer" />
+          <canvas
+            ref={rulerRef}
+            className="wave-ruler-canvas"
+            style={{ width: "100%", cursor: "text" }}
+            onMouseDown={onRulerDown}
+            onMouseMove={onRulerMove}
+            onMouseUp={onRulerUp}
+            onMouseLeave={onRulerUp}
+          />
+        </div>
+        <div className="wave-scroll">
+          <TrackHeaders
+            project={project}
+            api={api}
+            armedTrackId={armedTrackId}
+            onToggleArm={toggleArm}
+            collapsed={collapsed}
+            onToggleCollapse={toggleCollapse}
+          />
+          <div
+            className="wave-canvas-wrap"
+            ref={wrapRef}
+            onDragOver={onCanvasDragOver}
+            onDrop={onCanvasDrop}
+          >
+            {!project || (project.tracks.length === 0 && !recording) ? (
+              <p className="wave-empty">
+                Record, import, or drag a file from the pool to start your
+                timeline.
+              </p>
+            ) : (
+              <canvas
+                ref={canvasRef}
+                role="application"
+                aria-label="Timeline editor"
+                style={{
+                  width: "100%",
+                  cursor: drag.current ? "grabbing" : cursor,
+                }}
+                onMouseDown={onMouseDown}
+                onMouseMove={onMouseMove}
+                onMouseUp={onMouseUp}
+                onMouseLeave={onMouseUp}
+                onDoubleClick={onDoubleClick}
+                onWheel={onWheel}
+              />
+            )}
+          </div>
         </div>
       </div>
       <Inspector project={project} selected={selected} api={api} sr={sr} />

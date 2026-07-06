@@ -2,9 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { ask } from "@tauri-apps/plugin-dialog";
 import type { ProjectApi } from "../../audio/useProject";
 import type { ProjectView } from "../../audio/project";
-import { IconClose, IconMute, IconRecord, IconSolo } from "../icons";
 import {
-  RULER_HEIGHT,
+  IconChevronDown,
+  IconChevronRight,
+  IconClose,
+  IconMute,
+  IconRecord,
+  IconSolo,
+} from "../icons";
+import {
+  COLLAPSED_H,
   TRACK_HEIGHT,
   TRACK_COLORS,
   trackColor,
@@ -15,16 +22,19 @@ interface Props {
   api: ProjectApi;
   armedTrackId: string | null;
   onToggleArm: (id: string) => void;
+  collapsed: Set<string>;
+  onToggleCollapse: (id: string) => void;
 }
 
 /** Per-track control panel gutter (Audacity/Ableton pattern: the track owns its
- *  controls). Rows align 1:1 with the canvas lanes via a ruler-height spacer + fixed
- *  TRACK_HEIGHT rows. */
+ *  controls). Rows align 1:1 with the canvas lanes (variable heights for collapse). */
 export function TrackHeaders({
   project,
   api,
   armedTrackId,
   onToggleArm,
+  collapsed,
+  onToggleCollapse,
 }: Props) {
   const tracks = project?.tracks ?? [];
   const anySolo = tracks.some((t) => t.soloed);
@@ -52,16 +62,16 @@ export function TrackHeaders({
 
   return (
     <div className="track-headers" aria-label="Track controls">
-      <div className="track-headers-spacer" style={{ height: RULER_HEIGHT }} />
       {tracks.map((t, i) => {
         const dimmed = t.muted || (anySolo && !t.soloed);
         const armed = t.id === armedTrackId;
+        const isCollapsed = collapsed.has(t.id);
         return (
           <div
             key={t.id}
-            className={`track-head${dimmed ? " dimmed" : ""}${armed ? " armed" : ""}`}
+            className={`track-head${dimmed ? " dimmed" : ""}${armed ? " armed" : ""}${isCollapsed ? " collapsed" : ""}`}
             style={{
-              height: TRACK_HEIGHT,
+              height: isCollapsed ? COLLAPSED_H : TRACK_HEIGHT,
               ["--track-color" as string]: t.color ?? trackColor(i),
             }}
           >
@@ -111,6 +121,20 @@ export function TrackHeaders({
             </div>
             <div className="track-head-main">
               <div className="track-head-top">
+                <button
+                  type="button"
+                  className="track-collapse"
+                  onClick={() => onToggleCollapse(t.id)}
+                  title={isCollapsed ? "Expand track" : "Collapse track"}
+                  aria-label={isCollapsed ? "Expand track" : "Collapse track"}
+                  aria-expanded={!isCollapsed}
+                >
+                  {isCollapsed ? (
+                    <IconChevronRight size={14} />
+                  ) : (
+                    <IconChevronDown size={14} />
+                  )}
+                </button>
                 <TrackName
                   name={t.name}
                   onRename={(n) => api.setTrackName(t.id, n)}
@@ -157,26 +181,30 @@ export function TrackHeaders({
                   <IconSolo size={15} />
                 </button>
               </div>
-              <div className="track-head-gain">
-                <input
-                  type="range"
-                  min={-24}
-                  max={12}
-                  step={0.5}
-                  value={t.gain_db}
-                  onChange={(e) =>
-                    api.setTrackGain(t.id, Number(e.target.value))
-                  }
-                  aria-label={`${t.name} gain`}
-                  title={`${t.gain_db.toFixed(1)} dB`}
-                />
-                <span className="track-gain-val">
-                  {t.gain_db.toFixed(0)} dB
-                </span>
-              </div>
-              <div className="track-meta" title={trackDetail(t, project)}>
-                {trackDetail(t, project)}
-              </div>
+              {!isCollapsed && (
+                <>
+                  <div className="track-head-gain">
+                    <input
+                      type="range"
+                      min={-24}
+                      max={12}
+                      step={0.5}
+                      value={t.gain_db}
+                      onChange={(e) =>
+                        api.setTrackGain(t.id, Number(e.target.value))
+                      }
+                      aria-label={`${t.name} gain`}
+                      title={`${t.gain_db.toFixed(1)} dB`}
+                    />
+                    <span className="track-gain-val">
+                      {t.gain_db.toFixed(0)} dB
+                    </span>
+                  </div>
+                  <div className="track-meta" title={trackDetail(t, project)}>
+                    {trackDetail(t, project)}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         );
