@@ -159,6 +159,10 @@ export function useAudio() {
     return () => {
       cancelled = true;
       setLevels([]);
+      // Reopening the input (device/param change or Refresh) tears down the session.
+      // Reset recording state so the meter callback stops appending live-wave buckets
+      // with a stale time baseline and the UI doesn't get stuck "recording".
+      recordingRef.current = false;
       setRecording(false);
       closeInput().catch(() => {});
     };

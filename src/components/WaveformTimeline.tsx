@@ -45,6 +45,10 @@ interface Props {
   outputId: string | null;
   recording: boolean;
   recWave: RecWaveRef;
+  recordTargetRef: React.MutableRefObject<{
+    trackId: string | null;
+    startFrame: number;
+  }>;
 }
 
 type Drag =
@@ -74,6 +78,7 @@ export function WaveformTimeline({
   outputId,
   recording,
   recWave,
+  recordTargetRef,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -108,19 +113,25 @@ export function WaveformTimeline({
     onPosition: setPlayheadSec,
   });
 
-  // Keep the armed track valid: default to the newest track; clear when none exist.
+  // If the armed track is deleted, clear the arm. Don't force an arm otherwise, so
+  // toggling R off stays off (recording with nothing armed is handled by the backend,
+  // which creates+places a track, and the live overlay falls back to the last track).
   useEffect(() => {
-    const ids = project?.tracks.map((t) => t.id) ?? [];
-    if (armedTrackId && ids.includes(armedTrackId)) return;
-    setArmedTrackId(ids.length ? ids[ids.length - 1] : null);
+    if (armedTrackId && !project?.tracks.some((t) => t.id === armedTrackId)) {
+      setArmedTrackId(null);
+    }
   }, [project, armedTrackId]);
 
-  // Tell the backend where the next take lands (armed track + playhead), except while
-  // playing/recording where the target must stay fixed.
+  // Keep the shared record target fresh (App commits it synchronously at record time),
+  // and mirror it to the backend continuously except while playing/recording.
   useEffect(() => {
+    recordTargetRef.current = {
+      trackId: armedTrackId,
+      startFrame: Math.round(playheadSec * sr),
+    };
     if (playing || recording) return;
     setRecordTarget(armedTrackId, Math.round(playheadSec * sr)).catch(() => {});
-  }, [armedTrackId, playheadSec, playing, recording, sr]);
+  }, [armedTrackId, playheadSec, playing, recording, sr, recordTargetRef]);
 
   // On the record rising edge, snapshot where/when it began for the live overlay.
   useEffect(() => {
@@ -418,10 +429,14 @@ export function WaveformTimeline({
       // Prefer the track captured at record start; fall back to the armed track (e.g.
       // when the backend auto-created a track because none was armed).
       const tks = project?.tracks ?? [];
-      const liveId =
-        recTrackId.current && tks.some((t) => t.id === recTrackId.current)
-          ? recTrackId.current
-          : armedTrackId;
+      const valid = (id: string | null) => !!id && tks.some((t) => t.id === id);
+      // Snapshot track, else the armed track, else the last track (where the backend
+      // places a take recorded with nothing armed).
+      const liveId = valid(recTrackId.current)
+        ? recTrackId.current
+        : valid(armedTrackId)
+          ? armedTrackId
+          : tks[tks.length - 1]?.id;
       const ti = tks.findIndex((t) => t.id === liveId);
       if (ti >= 0) {
         const laneTop = RULER_HEIGHT + ti * TRACK_HEIGHT + 4;
@@ -807,6 +822,7 @@ export function WaveformTimeline({
         e.preventDefault();
         e.shiftKey ? k.api.redo() : k.api.undo();
       } else if (mod && key === "c") {
+        e.preventDefault();
         k.copySel();
       } else if (mod && key === "x") {
         e.preventDefault();

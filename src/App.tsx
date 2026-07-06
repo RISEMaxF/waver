@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAudio } from "./audio/useAudio";
 import { useProject } from "./audio/useProject";
+import { setRecordTarget } from "./audio/project";
 import { AudioControls } from "./components/AudioControls";
 import { FileBar } from "./components/FileBar";
 import { MediaPool } from "./components/MediaPool";
@@ -18,6 +19,15 @@ function App() {
   const [poolMsg, setPoolMsg] = useState<string | null>(null);
   const audio = useAudio();
   const project = useProject();
+  // Latest record target (armed track + playhead frame), kept fresh by the timeline so
+  // record can commit it synchronously before starting (avoids a scrub/arm race).
+  const recordTargetRef = useRef<{
+    trackId: string | null;
+    startFrame: number;
+  }>({
+    trackId: null,
+    startFrame: 0,
+  });
 
   useEffect(() => {
     invoke<AppInfo>("app_info")
@@ -41,6 +51,10 @@ function App() {
       audio.stopRec();
       return;
     }
+    // Commit the freshest target before starting, so a scrub/arm right before Rec can't
+    // land the take on a stale frame/track.
+    const t = recordTargetRef.current;
+    await setRecordTarget(t.trackId, t.startFrame).catch(() => {});
     await audio.startRec();
     project.refresh();
   }, [audio, project]);
@@ -97,6 +111,7 @@ function App() {
           outputId={audio.outputId}
           recording={audio.recording}
           recWave={audio.recWave}
+          recordTargetRef={recordTargetRef}
         />
       </main>
     </div>
