@@ -25,6 +25,7 @@ export interface TrackView {
   gain_db: number;
   muted: boolean;
   soloed: boolean;
+  color: string | null;
   clips: ClipView[];
 }
 
@@ -65,6 +66,8 @@ export const setTrackMuted = (trackId: string, muted: boolean) =>
   invoke<ProjectView>("set_track_muted", { trackId, muted });
 export const setTrackSoloed = (trackId: string, soloed: boolean) =>
   invoke<ProjectView>("set_track_soloed", { trackId, soloed });
+export const setTrackColor = (trackId: string, color: string | null) =>
+  invoke<ProjectView>("set_track_color", { trackId, color });
 export const addTrack = () => invoke<ProjectView>("add_track");
 export const removeTrack = (trackId: string) =>
   invoke<ProjectView>("remove_track", { trackId });

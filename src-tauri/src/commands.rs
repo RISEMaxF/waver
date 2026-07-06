@@ -135,6 +135,7 @@ pub struct TrackView {
     pub gain_db: f32,
     pub muted: bool,
     pub soloed: bool,
+    pub color: Option<String>,
     pub clips: Vec<ClipView>,
 }
 
@@ -196,6 +197,7 @@ impl ProjectView {
                     gain_db: t.gain_db,
                     muted: t.muted,
                     soloed: t.soloed,
+                    color: t.color.clone(),
                     clips: t
                         .clips
                         .iter()
@@ -280,6 +282,17 @@ pub fn close_input(state: State<'_, AudioState>) -> Result<(), String> {
         .lock()
         .expect("rec path mutex poisoned") = None;
     Ok(())
+}
+
+/// Set a track's identity color (hex), or `null` to revert to the auto color.
+#[tauri::command]
+pub fn set_track_color(
+    state: State<'_, AudioState>,
+    track_id: String,
+    color: Option<String>,
+) -> Result<ProjectView, String> {
+    let id = parse_id(&track_id)?;
+    apply_edit(&state, |p| p.set_track_color(id, color.clone()))
 }
 
 /// Add an empty track (Audacity-style: create a track, then arm it for recording).

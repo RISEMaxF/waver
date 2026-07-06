@@ -6,7 +6,7 @@ import type { ClipView, ProjectView } from "../../audio/project";
 import { pickLevel, type PeakLevel, type PeakPyramid } from "../../audio/peaks";
 
 // Per-track identity colors (Ableton-style): headers show a strip, clips take a tint.
-const TRACK_COLORS = [
+export const TRACK_COLORS = [
   "#4cc2ff",
   "#7ee787",
   "#ffa657",

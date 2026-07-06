@@ -51,6 +51,7 @@ pub fn run() {
             commands::set_track_gain,
             commands::set_track_muted,
             commands::set_track_soloed,
+            commands::set_track_color,
             commands::add_track,
             commands::remove_track,
             commands::duplicate_clip,

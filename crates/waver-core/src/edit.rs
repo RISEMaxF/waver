@@ -244,6 +244,16 @@ impl Project {
         Ok(())
     }
 
+    /// Set a track's identity color (hex), or `None` to revert to the auto color.
+    pub fn set_track_color(
+        &mut self,
+        track_id: Uuid,
+        color: Option<String>,
+    ) -> Result<(), EditError> {
+        self.track_mut(track_id)?.color = color;
+        Ok(())
+    }
+
     fn track_mut(&mut self, track_id: Uuid) -> Result<&mut Track, EditError> {
         self.tracks
             .iter_mut()

@@ -42,6 +42,8 @@ export function useProject() {
     setTrackGain: (id: string, g: number) => run(api.setTrackGain(id, g)),
     setTrackMuted: (id: string, m: boolean) => run(api.setTrackMuted(id, m)),
     setTrackSoloed: (id: string, s: boolean) => run(api.setTrackSoloed(id, s)),
+    setTrackColor: (id: string, c: string | null) =>
+      run(api.setTrackColor(id, c)),
     addTrack: () => run(api.addTrack()),
     removeTrack: (id: string) => run(api.removeTrack(id)),
     duplicate: (id: string, start: number) => run(api.duplicateClip(id, start)),

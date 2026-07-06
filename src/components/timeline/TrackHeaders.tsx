@@ -1,8 +1,14 @@
+import { useEffect, useRef, useState } from "react";
 import { ask } from "@tauri-apps/plugin-dialog";
 import type { ProjectApi } from "../../audio/useProject";
 import type { ProjectView } from "../../audio/project";
 import { IconClose } from "../icons";
-import { RULER_HEIGHT, TRACK_HEIGHT, trackColor } from "./renderer";
+import {
+  RULER_HEIGHT,
+  TRACK_HEIGHT,
+  TRACK_COLORS,
+  trackColor,
+} from "./renderer";
 
 interface Props {
   project: ProjectView | null;
@@ -22,6 +28,18 @@ export function TrackHeaders({
 }: Props) {
   const tracks = project?.tracks ?? [];
   const anySolo = tracks.some((t) => t.soloed);
+  const [pickerFor, setPickerFor] = useState<string | null>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!pickerFor) return;
+    const onDown = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node))
+        setPickerFor(null);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [pickerFor]);
 
   const removeTrack = async (id: string, name: string, clipCount: number) => {
     const warn =
@@ -44,10 +62,53 @@ export function TrackHeaders({
             className={`track-head${dimmed ? " dimmed" : ""}${armed ? " armed" : ""}`}
             style={{
               height: TRACK_HEIGHT,
-              ["--track-color" as string]: trackColor(i),
+              ["--track-color" as string]: t.color ?? trackColor(i),
             }}
           >
-            <span className="track-color-strip" />
+            <div
+              className="track-color-wrap"
+              ref={pickerFor === t.id ? pickerRef : null}
+            >
+              <button
+                type="button"
+                className="track-color-strip"
+                title="Track color"
+                aria-label={`${t.name} color`}
+                onClick={() => setPickerFor((c) => (c === t.id ? null : t.id))}
+              />
+              {pickerFor === t.id && (
+                <div
+                  className="color-popover"
+                  role="dialog"
+                  aria-label="Track color"
+                >
+                  {TRACK_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      className="color-swatch"
+                      style={{ background: c }}
+                      title={c}
+                      onClick={() => {
+                        api.setTrackColor(t.id, c);
+                        setPickerFor(null);
+                      }}
+                    />
+                  ))}
+                  <button
+                    type="button"
+                    className="color-swatch auto"
+                    title="Auto color"
+                    onClick={() => {
+                      api.setTrackColor(t.id, null);
+                      setPickerFor(null);
+                    }}
+                  >
+                    Auto
+                  </button>
+                </div>
+              )}
+            </div>
             <div className="track-head-main">
               <div className="track-head-top">
                 <span className="track-name" title={t.name}>

@@ -319,6 +319,9 @@ pub struct Track {
     pub gain_db: f32,
     pub muted: bool,
     pub soloed: bool,
+    /// Custom identity color (hex, e.g. "#4cc2ff"). `None` = auto color by track index.
+    #[serde(default)]
+    pub color: Option<String>,
     pub clips: Vec<Clip>,
 }
 
@@ -330,6 +333,7 @@ impl Track {
             gain_db: 0.0,
             muted: false,
             soloed: false,
+            color: None,
             clips: Vec::new(),
         }
     }

@@ -366,7 +366,7 @@ export function WaveformTimeline({
     (project?.tracks ?? []).forEach((track, ti) => {
       const laneTop = RULER_HEIGHT + ti * TRACK_HEIGHT + 4;
       const laneH = TRACK_HEIGHT - 8;
-      const tc = trackColor(ti); // track identity color
+      const tc = track.color ?? trackColor(ti); // track identity color (custom or auto)
       for (const clip of track.clips) {
         const d = drag.current;
         let startSec = clip.timeline_start / sr;
