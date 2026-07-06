@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   closeInput,
+  inputBufferFrames,
   listDevices,
   loadSettings,
   openInput,
@@ -41,6 +42,7 @@ export function useAudio() {
   const [outputId, setOutputId] = useState<string | null>(null);
   const [sampleRate, setSampleRate] = useState<number | null>(null);
   const [bufferFrames, setBufferFrames] = useState<number | null>(null);
+  const [resolvedBuffer, setResolvedBuffer] = useState<number | null>(null);
   const [levels, setLevels] = useState<ChannelLevel[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -152,6 +154,15 @@ export function useAudio() {
     )
       .then(() => {
         if (!cancelled) setError(null); // clear any stale error once metering runs
+        // A moment later (once callbacks have fired) read the actual buffer size —
+        // this is what "Default" resolved to.
+        setResolvedBuffer(null);
+        setTimeout(() => {
+          if (!cancelled)
+            inputBufferFrames()
+              .then((b) => !cancelled && setResolvedBuffer(b))
+              .catch(() => {});
+        }, 400);
       })
       .catch((e) => {
         if (!cancelled) setError(String(e));
@@ -262,6 +273,7 @@ export function useAudio() {
     outputId,
     sampleRate,
     bufferFrames,
+    resolvedBuffer,
     levels,
     notice,
     error,

@@ -15,6 +15,8 @@ interface Props {
   onRefresh: () => void;
   /** Lock all device controls (e.g. while recording — changing them aborts the take). */
   disabled?: boolean;
+  /** The buffer size the backend actually chose (shown when 'Default' is selected). */
+  resolvedBuffer?: number | null;
 }
 
 function deviceLabel(d: DeviceInfo): string {
@@ -83,7 +85,11 @@ export function DeviceSelector(props: Props) {
                 )
               }
             >
-              <option value="">Default</option>
+              <option value="">
+                {props.bufferFrames === null && props.resolvedBuffer
+                  ? `Default (${props.resolvedBuffer})`
+                  : "Default"}
+              </option>
               {[64, 128, 256, 512, 1024, 2048].map((b) => (
                 <option key={b} value={b}>
                   {b}

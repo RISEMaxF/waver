@@ -16,7 +16,7 @@
 
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -54,6 +54,9 @@ pub struct InputSession {
     stop: Arc<AtomicBool>,
     device_lost: Arc<AtomicBool>,
     xrun: Arc<AtomicBool>,
+    /// Frames per audio callback observed at runtime (the actual buffer size, incl. when
+    /// the backend chose the default). 0 until the first callback fires.
+    observed_buffer: Arc<AtomicU32>,
     rec_tx: mpsc::Sender<RecCmd>,
     /// A recording finalized during teardown (e.g. the device was lost mid-record)
     /// is preserved here so `stop_recording` can still retrieve it instead of losing
@@ -72,6 +75,13 @@ impl InputSession {
     /// Whether the capture ring overran (dropped samples) since opening.
     pub fn had_xrun(&self) -> bool {
         self.xrun.load(Ordering::SeqCst)
+    }
+
+    /// The actual buffer size (frames per callback) once metering has started, or `None`
+    /// before the first callback. Useful to show what "Default" resolved to.
+    pub fn observed_buffer(&self) -> Option<u32> {
+        let n = self.observed_buffer.load(Ordering::Relaxed);
+        (n > 0).then_some(n)
     }
 
     /// Start recording to `path` (32-bit float WAV). Errors if already recording or
@@ -193,6 +203,7 @@ fn build_input_stream(
     producer: rtrb::Producer<f32>,
     device_lost: Arc<AtomicBool>,
     xrun: Arc<AtomicBool>,
+    observed_buffer: Arc<AtomicU32>,
 ) -> Result<cpal::Stream, EngineError> {
     let channels = config.channels.max(1) as usize;
     macro_rules! build {
@@ -200,9 +211,12 @@ fn build_input_stream(
             let mut producer = producer;
             let device_lost = device_lost.clone();
             let xrun = xrun.clone();
+            let observed_buffer = observed_buffer.clone();
             dev.build_input_stream::<$t, _, _>(
                 config.clone(),
                 move |data: &[$t], _: &cpal::InputCallbackInfo| {
+                    // Record the actual frames-per-callback (RT-safe atomic store).
+                    observed_buffer.store((data.len() / channels).max(1) as u32, Ordering::Relaxed);
                     // Push whole frames only. If the ring can't fit a full frame we
                     // drop the frame (and flag an xrun) rather than a partial frame —
                     // a partial-frame drop would permanently swap the interleaved
@@ -256,6 +270,7 @@ where
     let stop = Arc::new(AtomicBool::new(false));
     let device_lost = Arc::new(AtomicBool::new(false));
     let xrun = Arc::new(AtomicBool::new(false));
+    let observed_buffer = Arc::new(AtomicU32::new(0));
     let finished: Arc<Mutex<Option<RecordingInfo>>> = Arc::new(Mutex::new(None));
     let channels = params.channels.max(1) as usize;
     let ring_slots = (params.sample_rate as usize * channels * RING_SECONDS).max(RING_MIN_SLOTS);
@@ -267,6 +282,7 @@ where
         let stop = stop.clone();
         let device_lost = device_lost.clone();
         let xrun = xrun.clone();
+        let observed_buffer = observed_buffer.clone();
         thread::Builder::new()
             .name("waver-audio-input".into())
             .spawn(move || {
@@ -307,6 +323,7 @@ where
                         producer,
                         device_lost.clone(),
                         xrun.clone(),
+                        observed_buffer.clone(),
                     ) {
                         Ok(stream) => {
                             built = Some((stream, consumer));
@@ -469,6 +486,7 @@ where
         stop,
         device_lost,
         xrun,
+        observed_buffer,
         rec_tx,
         finished,
         audio: Some(audio),

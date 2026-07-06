@@ -45,6 +45,11 @@ export function closeInput(): Promise<void> {
   return invoke("close_input");
 }
 
+/** The buffer size (frames/callback) the open input actually resolved to, or null. */
+export function inputBufferFrames(): Promise<number | null> {
+  return invoke<number | null>("input_buffer_frames");
+}
+
 /** Start recording the open input to a fresh WAV. Resolves with its path. */
 export function startRecording(): Promise<string> {
   return invoke<string>("start_recording");

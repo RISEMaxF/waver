@@ -37,6 +37,7 @@ pub fn run() {
             commands::list_hosts,
             commands::open_input,
             commands::close_input,
+            commands::input_buffer_frames,
             commands::start_recording,
             commands::stop_recording,
             commands::get_waveform_peaks,

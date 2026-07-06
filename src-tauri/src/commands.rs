@@ -273,6 +273,18 @@ pub fn open_input(
     Ok(())
 }
 
+/// The actual buffer size (frames per callback) the open input resolved to — including
+/// what "Default" chose. `None` before the first callback or with no input open.
+#[tauri::command]
+pub fn input_buffer_frames(state: State<'_, AudioState>) -> Option<u32> {
+    state
+        .session
+        .lock()
+        .expect("session mutex poisoned")
+        .as_ref()
+        .and_then(|s| s.observed_buffer())
+}
+
 /// Close the live input session (stops metering + any recording).
 #[tauri::command]
 pub fn close_input(state: State<'_, AudioState>) -> Result<(), String> {
