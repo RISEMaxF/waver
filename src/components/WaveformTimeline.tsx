@@ -19,10 +19,16 @@ import { Inspector } from "./timeline/Inspector";
 import { TrackHeaders } from "./timeline/TrackHeaders";
 import {
   IconChannels,
+  IconClose,
   IconCopy,
   IconCut,
   IconDuplicate,
+  IconFit,
+  IconFoldAll,
+  IconFollow,
   IconGrid,
+  IconHelp,
+  IconMagnet,
   IconPaste,
   IconPause,
   IconPlay,
@@ -149,6 +155,10 @@ export function WaveformTimeline({
   const [beatGrid, setBeatGrid] = useState(false);
   const [bpm, setBpm] = useState(120);
   const [gridDiv, setGridDiv] = useState(4); // steps per beat (4 = sixteenth notes)
+  const [snapEnabled, setSnapEnabled] = useState(true);
+  const [followPlayhead, setFollowPlayhead] = useState(true);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const altBypass = useRef(false); // Alt held during a drag momentarily disables snap
   const [, tick] = useState(0);
   // Snapshot of where/when the current recording began (for the live overlay).
   const recStartSec = useRef(0);
@@ -162,8 +172,9 @@ export function WaveformTimeline({
   // to the nearest step when the grid is on (used for the playhead + edit snapping).
   const stepSec = 60 / bpm / gridDiv;
   const snapToGrid = useCallback(
-    (sec: number) => (beatGrid ? Math.round(sec / stepSec) * stepSec : sec),
-    [beatGrid, stepSec],
+    (sec: number) =>
+      snapEnabled && beatGrid ? Math.round(sec / stepSec) * stepSec : sec,
+    [snapEnabled, beatGrid, stepSec],
   );
 
   const { playing, paused, startPlay, togglePause, stopPlay, seek } =
@@ -328,6 +339,11 @@ export function WaveformTimeline({
   // ---- Snapping ----
   const snapSec = useCallback(
     (sec: number, step: number): number => {
+      // Snap off (toggle) or momentarily bypassed (Alt held) → free placement.
+      if (!snapEnabled || altBypass.current) {
+        snapLine.current = null;
+        return Math.max(0, sec);
+      }
       // With the beat grid on, snap to the nearest beat step; otherwise the time grid.
       const gridCandidate = beatGrid
         ? Math.round(sec / stepSec) * stepSec
@@ -799,6 +815,7 @@ export function WaveformTimeline({
   const onMouseMove = (e: React.MouseEvent) => {
     const rect = canvasRef.current!.getBoundingClientRect();
     mouse.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    altBypass.current = e.altKey; // hold Alt while dragging to bypass snap
     if (drag.current) {
       if (drag.current.kind === "scrub")
         setPlayheadSec(snapToGrid(Math.max(0, xToSec(mouse.current.x))));
@@ -1050,6 +1067,84 @@ export function WaveformTimeline({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, project, toggleArm]);
 
+  // ---- View helpers: fit / zoom-to-selection / nudge / fold-all ----
+  const clampPps = (p: number) => Math.min(MAX_PPS, Math.max(MIN_PPS, p));
+
+  // Rightmost content edge (seconds) across every clip — the extent to fit.
+  const contentEndSec = useCallback((): number => {
+    let end = 0;
+    for (const t of project?.tracks ?? [])
+      for (const c of t.clips)
+        end = Math.max(end, (c.timeline_start + clipLen(c)) / sr);
+    return end;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, sr]);
+
+  // Fit the whole project into the viewport (Audacity "Fit to Width").
+  const fitToWindow = useCallback(() => {
+    const end = contentEndSec();
+    setScrollSec(0);
+    if (end <= 0) return;
+    setPps(clampPps((width * 0.98) / end));
+  }, [contentEndSec, width]);
+
+  // Zoom so the selected clip fills the viewport (Audacity "Zoom to Selection").
+  const zoomToSelection = useCallback(() => {
+    const c = project && selected ? findClip(project, selected) : null;
+    if (!c) return;
+    const len = clipLen(c) / sr;
+    if (len <= 0) return;
+    setPps(clampPps((width * 0.9) / len));
+    setScrollSec(Math.max(0, c.timeline_start / sr - len * 0.05));
+  }, [project, selected, sr, width]);
+
+  // Nudge the selected clip along the timeline by one grid step (Shift = ×4).
+  // Skips the move if it would overlap another clip on the same track.
+  const nudgeSelected = useCallback(
+    (dir: -1 | 1, big: boolean) => {
+      const c = project && selected ? findClip(project, selected) : null;
+      const track = c ? trackOfClip(c.id) : null;
+      if (!c || !track) return;
+      const stepFrames = beatGrid ? stepSec * sr : 0.1 * sr; // 1/10s default step
+      const delta = dir * stepFrames * (big ? 4 : 1);
+      const len = clipLen(c);
+      const want = Math.max(0, Math.round(c.timeline_start + delta));
+      const overlaps = track.clips.some(
+        (o) =>
+          o.id !== c.id &&
+          want < o.timeline_start + clipLen(o) &&
+          o.timeline_start < want + len,
+      );
+      if (!overlaps && want !== c.timeline_start)
+        api.move(c.id, track.id, want);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [project, selected, beatGrid, stepSec, sr, api],
+  );
+
+  // Collapse every track, or (if all already collapsed) expand every track.
+  const foldAll = useCallback(() => {
+    const ids = (project?.tracks ?? []).map((t) => t.id);
+    setCollapsed((prev) =>
+      ids.length > 0 && ids.every((id) => prev.has(id))
+        ? new Set()
+        : new Set(ids),
+    );
+  }, [project]);
+
+  // ---- Follow playhead: keep it in view during playback (Audacity/Ableton) ----
+  useEffect(() => {
+    if (!followPlayhead || !playing || width <= 0) return;
+    const viewSec = width / pps;
+    const left = scrollSec;
+    const right = scrollSec + viewSec;
+    // Re-page when the playhead crosses the right edge or scrolls off the left.
+    if (playheadSec > right - viewSec * 0.08)
+      setScrollSec(Math.max(0, playheadSec - viewSec * 0.15));
+    else if (playheadSec < left)
+      setScrollSec(Math.max(0, playheadSec - viewSec * 0.15));
+  }, [followPlayhead, playing, playheadSec, pps, width, scrollSec]);
+
   // ---- Keyboard shortcuts (registered once; reads latest via a ref) ----
   const kb = useRef({
     api,
@@ -1064,6 +1159,12 @@ export function WaveformTimeline({
     pasteAtPlayhead,
     duplicateSel,
     armSelected,
+    fitToWindow,
+    zoomToSelection,
+    nudgeSelected,
+    foldAll,
+    toggleShortcuts: () => setShowShortcuts((s) => !s),
+    toggleSnap: () => setSnapEnabled((s) => !s),
   });
   kb.current = {
     api,
@@ -1078,6 +1179,12 @@ export function WaveformTimeline({
     pasteAtPlayhead,
     duplicateSel,
     armSelected,
+    fitToWindow,
+    zoomToSelection,
+    nudgeSelected,
+    foldAll,
+    toggleShortcuts: () => setShowShortcuts((s) => !s),
+    toggleSnap: () => setSnapEnabled((s) => !s),
   };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1108,10 +1215,30 @@ export function WaveformTimeline({
           k.api.del(k.selected, k.ripple);
           setSelected(null);
         }
+      } else if (e.key === "ArrowLeft" && !mod) {
+        e.preventDefault();
+        k.nudgeSelected(-1, e.shiftKey);
+      } else if (e.key === "ArrowRight" && !mod) {
+        e.preventDefault();
+        k.nudgeSelected(1, e.shiftKey);
       } else if (key === "r" && !mod) {
         k.armSelected();
-      } else if (key === "s" && !mod) {
+      } else if (key === "s" && !mod && !e.shiftKey) {
         k.splitAtPlayhead();
+      } else if (key === "n" && !mod) {
+        k.toggleSnap();
+      } else if (key === "f" && !mod) {
+        k.fitToWindow();
+      } else if (key === "e" && !mod) {
+        k.zoomToSelection();
+      } else if (key === "t" && !mod) {
+        k.foldAll();
+      } else if (e.key === "?" || (key === "/" && e.shiftKey)) {
+        e.preventDefault();
+        k.toggleShortcuts();
+      } else if (e.key === "Escape") {
+        setShowShortcuts(false);
+        setSelected(null);
       } else if (e.key === " ") {
         e.preventDefault();
         k.playing ? k.togglePause() : k.startPlay();
@@ -1178,6 +1305,55 @@ export function WaveformTimeline({
           aria-label="Zoom out"
         >
           <IconZoomOut />
+        </button>
+        <button
+          type="button"
+          className="tbtn icon-only"
+          onClick={fitToWindow}
+          title="Fit project to window (F)"
+          aria-label="Fit to window"
+        >
+          <IconFit />
+        </button>
+        <button
+          type="button"
+          className="tbtn icon-only"
+          disabled={!selected}
+          onClick={zoomToSelection}
+          title="Zoom to selection (E)"
+          aria-label="Zoom to selection"
+        >
+          <IconZoomIn strokeWidth={2.4} />
+        </button>
+        <button
+          type="button"
+          className="tbtn icon-only"
+          onClick={foldAll}
+          title="Fold / unfold all tracks (T)"
+          aria-label="Fold all tracks"
+        >
+          <IconFoldAll />
+        </button>
+        <span className="tb-sep" />
+        <button
+          type="button"
+          className={`tbtn icon-only${snapEnabled ? " active" : ""}`}
+          onClick={() => setSnapEnabled((s) => !s)}
+          title="Snap to grid (N) — hold Alt while dragging to bypass"
+          aria-label="Snap to grid"
+          aria-pressed={snapEnabled}
+        >
+          <IconMagnet />
+        </button>
+        <button
+          type="button"
+          className={`tbtn icon-only${followPlayhead ? " active" : ""}`}
+          onClick={() => setFollowPlayhead((s) => !s)}
+          title="Follow playhead during playback"
+          aria-label="Follow playhead"
+          aria-pressed={followPlayhead}
+        >
+          <IconFollow />
         </button>
         <span className="tb-sep" />
         <div
@@ -1333,6 +1509,15 @@ export function WaveformTimeline({
         >
           <IconRedo />
         </button>
+        <button
+          type="button"
+          className="tbtn icon-only"
+          onClick={() => setShowShortcuts(true)}
+          title="Keyboard shortcuts (?)"
+          aria-label="Keyboard shortcuts"
+        >
+          <IconHelp />
+        </button>
         <span className="wave-info">
           {beatGrid && (
             <>
@@ -1401,6 +1586,87 @@ export function WaveformTimeline({
         </div>
       </div>
       <Inspector project={project} selected={selected} api={api} sr={sr} />
+      {showShortcuts && (
+        <ShortcutsOverlay onClose={() => setShowShortcuts(false)} />
+      )}
+    </div>
+  );
+}
+
+/** Keyboard shortcuts cheat-sheet (toggled with `?`). */
+function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
+  const groups: { title: string; items: [string, string][] }[] = [
+    {
+      title: "Transport",
+      items: [
+        ["Space", "Play / pause"],
+        ["S", "Split clip at playhead"],
+        ["R", "Arm selected clip's track"],
+      ],
+    },
+    {
+      title: "Edit",
+      items: [
+        ["⌘/Ctrl + Z", "Undo"],
+        ["⌘/Ctrl + Shift + Z", "Redo"],
+        ["⌘/Ctrl + C / X / V", "Copy / cut / paste"],
+        ["⌘/Ctrl + D", "Duplicate clip"],
+        ["← / →", "Nudge clip (Shift = ×4)"],
+        ["Delete / Backspace", "Delete clip"],
+      ],
+    },
+    {
+      title: "View",
+      items: [
+        ["F", "Fit project to window"],
+        ["E", "Zoom to selection"],
+        ["T", "Fold / unfold all tracks"],
+        ["N", "Toggle snap to grid"],
+        ["Alt (drag)", "Bypass snap momentarily"],
+        ["Ctrl + wheel", "Zoom · wheel: scroll"],
+        ["?", "This cheat-sheet"],
+      ],
+    },
+  ];
+  return (
+    <div
+      className="shortcuts-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Keyboard shortcuts"
+      onMouseDown={onClose}
+    >
+      <div className="shortcuts-card" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="shortcuts-head">
+          <h2>Keyboard shortcuts</h2>
+          <button
+            type="button"
+            className="tbtn icon-only"
+            onClick={onClose}
+            aria-label="Close"
+            title="Close (Esc)"
+          >
+            <IconClose />
+          </button>
+        </div>
+        <div className="shortcuts-cols">
+          {groups.map((g) => (
+            <div key={g.title} className="shortcuts-group">
+              <h3>{g.title}</h3>
+              <dl>
+                {g.items.map(([k, d]) => (
+                  <div key={k} className="shortcut-row">
+                    <dt>
+                      <kbd>{k}</kbd>
+                    </dt>
+                    <dd>{d}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

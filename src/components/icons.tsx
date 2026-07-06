@@ -48,6 +48,53 @@ export const IconExport = (p: IconProps) => (
   </Svg>
 );
 
+// Fit to width: inward-pointing arrows between two vertical bounds.
+export const IconFit = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 5v14" />
+    <path d="M20 5v14" />
+    <path d="M8 12h8" />
+    <path d="M8 12l3-3M8 12l3 3" />
+    <path d="M16 12l-3-3M16 12l-3 3" />
+  </Svg>
+);
+
+// Fold all tracks: stacked horizontal lines collapsing toward center.
+export const IconFoldAll = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 12h16" />
+    <path d="M9 8l3-3 3 3" />
+    <path d="M9 16l3 3 3-3" />
+  </Svg>
+);
+
+// Snap magnet.
+export const IconMagnet = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M6 4v7a6 6 0 0012 0V4" />
+    <path d="M6 8h4" />
+    <path d="M14 8h4" />
+  </Svg>
+);
+
+// Follow playhead: a pointer chevron chasing a line.
+export const IconFollow = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 6v12" />
+    <path d="M9 8l5 4-5 4z" fill="currentColor" />
+    <path d="M18 6v12" />
+  </Svg>
+);
+
+// Help / shortcuts.
+export const IconHelp = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M9.5 9a2.5 2.5 0 013.5-2.3c1 .4 1.5 1.3 1.5 2.3 0 1.6-2 2-2.5 3" />
+    <path d="M12 17h.01" />
+  </Svg>
+);
+
 export const IconNew = (p: IconProps) => (
   <Svg {...p}>
     <path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" />

@@ -1378,3 +1378,92 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   color: var(--ink);
   font-size: var(--font-size-xs);
 }
+
+/* ---- Keyboard shortcuts cheat-sheet ---- */
+.shortcuts-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, #000 55%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.shortcuts-card {
+  width: min(720px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  border-radius: var(--radius-lg, 12px);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface, var(--bg));
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
+}
+
+.shortcuts-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.shortcuts-head h2 {
+  margin: 0;
+  font-size: var(--font-size-md, 15px);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.shortcuts-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px 28px;
+  padding: 18px;
+}
+
+.shortcuts-group h3 {
+  margin: 0 0 8px;
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+
+.shortcuts-group dl {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shortcut-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.shortcut-row dt {
+  flex: 0 0 auto;
+}
+
+.shortcut-row dd {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.shortcut-row kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--color-border);
+  background: var(--bg);
+  color: var(--color-text);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
