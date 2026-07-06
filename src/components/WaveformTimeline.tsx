@@ -89,6 +89,16 @@ type Zone = "trim-start" | "trim-end" | "fade-in" | "fade-out" | "body";
 
 const FADE_ZONE_PX = 22;
 
+// bar.beat.step position at `sec` for a 4/4 grid at `bpm` (F12).
+function barsBeats(sec: number, bpm: number, stepSec: number): string {
+  const beatSec = 60 / bpm;
+  const barSec = beatSec * 4;
+  const bar = Math.floor(sec / barSec) + 1;
+  const beat = Math.floor((sec % barSec) / beatSec) + 1;
+  const step = Math.floor((sec % beatSec) / stepSec) + 1;
+  return `${bar}.${beat}.${step}`;
+}
+
 function nextCurve(c: FadeCurve): FadeCurve {
   return c === "linear"
     ? "equal_power"
@@ -341,26 +351,32 @@ export function WaveformTimeline({
         ctx.moveTo(x, RULER_HEIGHT);
         ctx.lineTo(x, height);
         ctx.stroke();
+        ctx.fillText(fmtTime(t, step), x + 3, 14);
       }
-      ctx.fillText(fmtTime(t, step), x + 3, 14);
     }
 
     // Beat grid (bar / beat / step lines) — 4/4. Bars strongest, steps faintest.
     if (beatGrid) {
       const stepsPerBar = gridDiv * 4;
       ctx.strokeStyle = th.ruler;
+      const barLabels: [number, number][] = []; // [x, barNumber]
       for (let idx = Math.max(0, Math.ceil(scrollSec / stepSec)); ; idx++) {
         const x = (idx * stepSec - scrollSec) * pps;
         if (x > width) break;
-        ctx.globalAlpha =
-          idx % stepsPerBar === 0 ? 0.5 : idx % gridDiv === 0 ? 0.28 : 0.1;
+        const isBar = idx % stepsPerBar === 0;
+        ctx.globalAlpha = isBar ? 0.5 : idx % gridDiv === 0 ? 0.28 : 0.1;
         const xr = Math.round(x) + 0.5;
         ctx.beginPath();
         ctx.moveTo(xr, RULER_HEIGHT);
         ctx.lineTo(xr, height);
         ctx.stroke();
+        if (isBar) barLabels.push([x, idx / stepsPerBar + 1]);
       }
       ctx.globalAlpha = 1;
+      // Bar numbers on the ruler (replaces the seconds labels while the grid is on).
+      ctx.fillStyle = th.ruler;
+      ctx.font = "10px system-ui, sans-serif";
+      for (const [x, bar] of barLabels) ctx.fillText(String(bar), x + 3, 14);
     }
 
     (project?.tracks ?? []).forEach((track, ti) => {
@@ -1198,7 +1214,15 @@ export function WaveformTimeline({
           <IconRedo />
         </button>
         <span className="wave-info">
-          {pps.toFixed(0)} px/s · {playheadSec.toFixed(2)}s
+          {beatGrid && (
+            <>
+              <b className="wave-barbeat">
+                {barsBeats(playheadSec, bpm, stepSec)}
+              </b>
+              {" · "}
+            </>
+          )}
+          {playheadSec.toFixed(2)}s · {pps.toFixed(0)} px/s
         </span>
       </div>
       <div className="wave-body">

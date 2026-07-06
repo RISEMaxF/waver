@@ -922,6 +922,11 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   font-variant-numeric: tabular-nums;
 }
 
+.wave-barbeat {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
 /* Body: track-header gutter + the scrollable canvas. Fills the stage; scrolls
    vertically when there are more tracks than fit. */
 .wave-body {
