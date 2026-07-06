@@ -114,6 +114,8 @@ export const play = (
 export const pausePlayback = (paused: boolean) =>
   invoke("pause_playback", { paused });
 export const stopPlayback = () => invoke("stop_playback");
+export const previewSource = (deviceId: string, sourceId: string) =>
+  invoke<void>("preview_source", { deviceId, sourceId });
 export const playbackStatus = () => invoke<PlaybackStatus>("playback_status");
 
 export const undo = () => invoke<ProjectView>("undo");

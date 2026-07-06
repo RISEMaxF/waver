@@ -1,24 +1,71 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { importToPoolDialog } from "../audio/files";
+import { playbackStatus, previewSource, stopPlayback } from "../audio/project";
 import type { ProjectView, SourceView } from "../audio/project";
-import { IconChevronLeft, IconChevronRight, IconPlus } from "./icons";
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconPlay,
+  IconPlus,
+  IconStop,
+} from "./icons";
 
-const basename = (p: string) => p.split(/[\\/]/).pop() ?? p;
+const basename = (p: string) =>
+  (p.split(/[\\/]/).pop() ?? p).replace(/\.[^.]+$/, "");
 
-/** Media pool / scratchpad: imported sources you can drag onto tracks. A source can be
- *  dropped many times (each drop is a new clip), so it works as a reusable clip bin. */
+/** Media pool / scratchpad: imported sources you can audition (play/stop, Finder-style)
+ *  and drag onto tracks. A source can be dropped many times (a reusable clip bin). */
 export function MediaPool({
   project,
+  outputId,
   onChanged,
   onError,
 }: {
   project: ProjectView | null;
+  outputId: string | null;
   onChanged: () => void;
   onError: (msg: string) => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [previewId, setPreviewId] = useState<string | null>(null);
   const sources = project?.sources ?? [];
+
+  // Auto-reset the play button when a preview finishes on its own.
+  useEffect(() => {
+    if (!previewId) return;
+    let alive = true;
+    const id = setInterval(async () => {
+      try {
+        const st = await playbackStatus();
+        if (alive && !st.playing) setPreviewId(null);
+      } catch {
+        /* ignore */
+      }
+    }, 300);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [previewId]);
+
+  const togglePreview = async (id: string) => {
+    if (previewId === id) {
+      stopPlayback().catch(() => {});
+      setPreviewId(null);
+      return;
+    }
+    if (!outputId) {
+      onError("Select an output device to preview.");
+      return;
+    }
+    try {
+      await previewSource(outputId, id);
+      setPreviewId(id);
+    } catch (e) {
+      onError(`Preview failed: ${e}`);
+    }
+  };
 
   const addFiles = async () => {
     setBusy(true);
@@ -81,18 +128,39 @@ export function MediaPool({
             imports show up too.
           </p>
         ) : (
-          sources.map((s) => <PoolItem key={s.id} source={s} />)
+          sources.map((s) => (
+            <PoolItem
+              key={s.id}
+              source={s}
+              playing={previewId === s.id}
+              onToggle={() => togglePreview(s.id)}
+            />
+          ))
         )}
       </div>
     </div>
   );
 }
 
-function PoolItem({ source }: { source: SourceView }) {
+function PoolItem({
+  source,
+  playing,
+  onToggle,
+}: {
+  source: SourceView;
+  playing: boolean;
+  onToggle: () => void;
+}) {
   const dur = source.frames / Math.max(1, source.sample_rate);
+  const ch =
+    source.channels === 1
+      ? "Mono"
+      : source.channels === 2
+        ? "Stereo"
+        : `${source.channels}ch`;
   return (
     <div
-      className="pool-item"
+      className={`pool-item${playing ? " playing" : ""}`}
       draggable
       onDragStart={(e) => {
         e.dataTransfer.setData("application/x-waver-source", source.id);
@@ -100,10 +168,24 @@ function PoolItem({ source }: { source: SourceView }) {
       }}
       title={`${source.path}\nDrag onto a track to place`}
     >
-      <span className="pool-item-name">{basename(source.path)}</span>
-      <span className="pool-item-meta">
-        {dur.toFixed(1)}s · {source.channels}ch
-      </span>
+      <button
+        type="button"
+        className="pool-play"
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+        title={playing ? "Stop preview" : "Preview"}
+        aria-label={playing ? "Stop preview" : "Preview"}
+      >
+        {playing ? <IconStop size={13} /> : <IconPlay size={13} />}
+      </button>
+      <div className="pool-item-info">
+        <span className="pool-item-name">{basename(source.path)}</span>
+        <span className="pool-item-meta">
+          {dur.toFixed(1)}s · {ch}
+        </span>
+      </div>
     </div>
   );
 }

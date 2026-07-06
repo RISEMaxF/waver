@@ -63,6 +63,7 @@ pub fn run() {
             commands::set_clip_fade_in,
             commands::set_clip_fade_out,
             commands::play,
+            commands::preview_source,
             commands::pause_playback,
             commands::stop_playback,
             commands::playback_status,

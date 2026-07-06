@@ -136,6 +136,7 @@ function App() {
       <main className="stage">
         <MediaPool
           project={project.project}
+          outputId={audio.outputId}
           onChanged={() => {
             project.markDirty();
             project.refresh();

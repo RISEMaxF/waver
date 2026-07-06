@@ -728,6 +728,35 @@ pub fn play(
     Ok(())
 }
 
+/// Preview a media-pool source through the output (Finder-style audition). Reuses the
+/// playback slot, so stop_playback stops it.
+#[tauri::command]
+pub fn preview_source(
+    state: State<'_, AudioState>,
+    device_id: String,
+    source_id: String,
+) -> Result<(), String> {
+    let sid = parse_id(&source_id)?;
+    let source = {
+        let g = state.edit.lock().expect("edit mutex poisoned");
+        g.project.sources.iter().find(|s| s.id == sid).cloned()
+    }
+    .ok_or("no such source")?;
+    let _ = state
+        .playback
+        .lock()
+        .expect("playback mutex poisoned")
+        .take();
+    // A throwaway one-clip project at the source's own rate.
+    let mut proj = Project::new(source.sample_rate);
+    let tid = proj.add_track("preview");
+    proj.add_recording(source, Some(tid), 0);
+    let playback =
+        waver_engine::start_playback(&proj, &device_id, 0, None).map_err(|e| e.to_string())?;
+    *state.playback.lock().expect("playback mutex poisoned") = Some(playback);
+    Ok(())
+}
+
 /// FR-6.1 — pause or resume playback.
 #[tauri::command]
 pub fn pause_playback(state: State<'_, AudioState>, paused: bool) {
