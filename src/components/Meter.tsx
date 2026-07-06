@@ -53,6 +53,9 @@ export function Meter({
     );
   }
 
+  const maxPeak = channels.reduce((m, c) => Math.max(m, c.peak_dbfs), MIN_DBFS);
+  const anyClip = clipped.current.some(Boolean);
+
   return (
     <div
       className={`meter${compact ? " compact" : ""}`}
@@ -61,31 +64,46 @@ export function Meter({
       onClick={reset}
       title="Click to reset peak / clip hold"
     >
-      {channels.map((level, i) => {
-        const rmsPct = normalize(level.rms_dbfs);
-        const peakPct = normalize(level.peak_dbfs);
-        const holdPct = normalize(holds.current[i] ?? MIN_DBFS);
-        const isClipped = clipped.current[i];
-        return (
-          <div className="meter-channel" key={i}>
-            <span
-              className={`meter-clip${isClipped ? " on" : ""}`}
-              title="Clipped"
-            />
-            <div className="meter-track">
-              <div className="meter-rms" style={sizeStyle(compact, rmsPct)} />
-              <div className="meter-peak" style={posStyle(compact, peakPct)} />
-              <div className="meter-hold" style={posStyle(compact, holdPct)} />
-            </div>
-            {!compact && (
-              <div className="meter-readout">
-                <span className="meter-db">{fmtDb(level.peak_dbfs)}</span>
-                <span className="meter-ch">{i + 1}</span>
+      <div className="meter-bars">
+        {channels.map((level, i) => {
+          const rmsPct = normalize(level.rms_dbfs);
+          const peakPct = normalize(level.peak_dbfs);
+          const holdPct = normalize(holds.current[i] ?? MIN_DBFS);
+          const isClipped = clipped.current[i];
+          return (
+            <div className="meter-channel" key={i}>
+              <span
+                className={`meter-clip${isClipped ? " on" : ""}`}
+                title="Clipped"
+              />
+              <div className="meter-track">
+                {/* dB reference ticks at -24/-12/-6 (fractions of the -60..0 range) */}
+                {compact && <span className="meter-ticks" aria-hidden="true" />}
+                <div className="meter-rms" style={sizeStyle(compact, rmsPct)} />
+                <div
+                  className="meter-peak"
+                  style={posStyle(compact, peakPct)}
+                />
+                <div
+                  className="meter-hold"
+                  style={posStyle(compact, holdPct)}
+                />
               </div>
-            )}
-          </div>
-        );
-      })}
+              {!compact && (
+                <div className="meter-readout">
+                  <span className="meter-db">{fmtDb(level.peak_dbfs)}</span>
+                  <span className="meter-ch">{i + 1}</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {compact && (
+        <span className={`meter-compact-db${anyClip ? " clip" : ""}`}>
+          {anyClip ? "CLIP" : `${fmtDb(maxPeak)} dB`}
+        </span>
+      )}
     </div>
   );
 }

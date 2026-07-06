@@ -557,19 +557,29 @@ body {
 
 /* ---- Compact (horizontal) meter for the top bar ---- */
 .meter.compact {
+  flex-direction: row;
+  align-items: center;
+  gap: 7px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.meter.compact .meter-bars {
+  display: flex;
   flex-direction: column;
   gap: 3px;
-  padding: 0;
 }
 
 .meter.compact .meter-channel {
   flex-direction: row;
-  gap: 4px;
+  align-items: center;
+  gap: 5px;
 }
 
 .meter.compact .meter-track {
-  width: 90px;
-  height: 7px;
+  position: relative;
+  width: 150px;
+  height: 11px;
   border-radius: 3px;
   background: linear-gradient(
     to right,
@@ -580,6 +590,37 @@ body {
     color-mix(in srgb, var(--err) 22%, var(--panel)) 90%,
     color-mix(in srgb, var(--err) 22%, var(--panel)) 100%
   );
+}
+
+/* dB reference ticks at -24 / -12 / -6 dBFS on the -60..0 range (60% / 80% / 90%). */
+.meter.compact .meter-ticks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(
+    to right,
+    transparent calc(60% - 0.5px),
+    color-mix(in srgb, var(--ink) 22%, transparent) calc(60% - 0.5px),
+    color-mix(in srgb, var(--ink) 22%, transparent) calc(60% + 0.5px),
+    transparent calc(60% + 0.5px),
+    transparent calc(80% - 0.5px),
+    color-mix(in srgb, var(--ink) 22%, transparent) calc(80% - 0.5px),
+    color-mix(in srgb, var(--ink) 22%, transparent) calc(80% + 0.5px),
+    transparent calc(80% + 0.5px)
+  );
+}
+
+.meter-compact-db {
+  min-width: 3.4rem;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+
+.meter-compact-db.clip {
+  color: var(--err);
+  font-weight: 800;
 }
 
 .meter.compact .meter-rms {
