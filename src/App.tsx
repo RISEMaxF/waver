@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { ask } from "@tauri-apps/plugin-dialog";
 import { useAudio } from "./audio/useAudio";
 import { useProject } from "./audio/useProject";
 import { setRecordTarget } from "./audio/project";
@@ -33,6 +35,29 @@ function App() {
     invoke<AppInfo>("app_info")
       .then(setInfo)
       .catch(() => {});
+  }, []);
+
+  // Guard the window close / quit against unsaved changes (F1). Registered once; reads
+  // the live dirty flag via a ref.
+  const dirtyRef = useRef(false);
+  dirtyRef.current = project.dirty;
+  useEffect(() => {
+    const win = getCurrentWindow();
+    const unlisten = win.onCloseRequested(async (event) => {
+      if (!dirtyRef.current) return; // clean — let it close
+      event.preventDefault();
+      const discard = await ask(
+        "You have unsaved changes. Discard them and quit?",
+        { title: "Unsaved changes", kind: "warning" },
+      );
+      if (discard) {
+        dirtyRef.current = false;
+        await win.destroy();
+      }
+    });
+    return () => {
+      unlisten.then((u) => u());
+    };
   }, []);
 
   // Refresh the project timeline whenever a new take is recorded.

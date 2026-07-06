@@ -792,7 +792,12 @@ pub fn import_audio(
         return Err("imported file has no audio".into());
     }
 
-    let n = state.takes.fetch_add(1, Ordering::SeqCst) + 1;
+    let _ = state.takes.fetch_add(1, Ordering::SeqCst);
+    let import_name = std::path::Path::new(&path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Import")
+        .to_string();
     let source = Source::new(
         info.path.clone(),
         info.channels,
@@ -811,19 +816,14 @@ pub fn import_audio(
             .unwrap_or(0);
         st.history.snapshot(&st.project);
         let (sid, cid) = st.project.add_recording(source, track_id, start);
-        let import_name = std::path::Path::new(&path)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("Import")
-            .to_string();
-        let _ = st.project.set_clip_name(cid, import_name);
+        let _ = st.project.set_clip_name(cid, import_name.clone());
         (sid, cid, start)
     };
 
     Ok(RecordingResult {
         source_id: source_id.to_string(),
         clip_id: clip_id.to_string(),
-        name: format!("Import {n}"),
+        name: import_name,
         path: info.path.to_string_lossy().to_string(),
         channels: info.channels,
         sample_rate: info.sample_rate,

@@ -29,6 +29,7 @@ pub enum EditError {
 /// range, position, gain, and fades. Sent from the frontend clipboard.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClipSpec {
+    #[serde(default)]
     pub name: String,
     pub source_id: Uuid,
     pub source_in: u64,

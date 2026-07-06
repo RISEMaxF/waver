@@ -161,7 +161,9 @@ impl Source {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Clip {
     pub id: Uuid,
-    /// Display name shown on the clip (defaults to the source file stem).
+    /// Display name shown on the clip (defaults to the source file stem). `serde(default)`
+    /// keeps projects saved before this field existed loadable.
+    #[serde(default)]
     pub name: String,
     pub source_id: Uuid,
     /// `None` = all channels; `Some(n)` = a single split-out channel (spec FR-4.6).
@@ -662,5 +664,36 @@ mod tests {
         let json = serde_json::to_string(&project).unwrap();
         let restored: Project = serde_json::from_str(&json).unwrap();
         assert_eq!(project, restored);
+    }
+
+    /// Projects saved before Clip.name / Track.color existed must still load (serde
+    /// defaults), or opening an old project would fail — a data-loss regression.
+    #[test]
+    fn loads_project_without_name_or_color_fields() {
+        let json = r#"{
+            "sample_rate": 48000,
+            "sources": [],
+            "tracks": [{
+                "id": "00000000-0000-0000-0000-000000000001",
+                "name": "A",
+                "gain_db": 0.0,
+                "muted": false,
+                "soloed": false,
+                "clips": [{
+                    "id": "00000000-0000-0000-0000-000000000002",
+                    "source_id": "00000000-0000-0000-0000-000000000003",
+                    "source_channel": null,
+                    "source_in": 0,
+                    "source_out": 1000,
+                    "timeline_start": 0,
+                    "gain_db": 0.0,
+                    "fade_in": {"len_frames": 0, "curve": "Linear"},
+                    "fade_out": {"len_frames": 0, "curve": "Linear"}
+                }]
+            }]
+        }"#;
+        let p: Project = serde_json::from_str(json).expect("old project should load");
+        assert_eq!(p.tracks[0].color, None);
+        assert_eq!(p.tracks[0].clips[0].name, "");
     }
 }
