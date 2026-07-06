@@ -75,10 +75,14 @@ pub struct ChannelLevel {
 }
 
 /// A metering update streamed to the frontend over a Tauri Channel (spec FR-2.1),
-/// one [`ChannelLevel`] per input channel.
+/// one [`ChannelLevel`] per input channel. `wave_min`/`wave_max` are the signed
+/// linear sample extremes of the window across all channels — used to draw the live
+/// waveform while recording.
 #[derive(Debug, Clone, Serialize)]
 pub struct MeterUpdate {
     pub channels: Vec<ChannelLevel>,
+    pub wave_min: f32,
+    pub wave_max: f32,
 }
 
 /// Concrete stream parameters chosen by the user (spec FR-1.3).

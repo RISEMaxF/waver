@@ -31,6 +31,9 @@ export interface ChannelLevel {
 
 export interface MeterUpdate {
   channels: ChannelLevel[];
+  /** Signed linear sample extremes of the window (all channels) — live waveform. */
+  wave_min: number;
+  wave_max: number;
 }
 
 export interface AudioSettings {

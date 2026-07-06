@@ -48,6 +48,13 @@ export function useAudio() {
   const [recElapsed, setRecElapsed] = useState(0);
   const [takes, setTakes] = useState<RecordingResult[]>([]);
   const ready = useRef(false);
+  // Live recording waveform: min/max buckets timestamped from record start, for the
+  // timeline to draw a growing waveform on the armed track while recording.
+  const recordingRef = useRef(false);
+  const recWave = useRef<{
+    start: number;
+    buckets: { t: number; min: number; max: number }[];
+  }>({ start: 0, buckets: [] });
   // Only persist selections that came from an explicit user action — never a
   // fallback we derived because a saved device was (transiently) absent. Otherwise
   // one launch with a device unplugged would overwrite the saved preference (FR-1.2).
@@ -132,7 +139,15 @@ export function useAudio() {
       inputId,
       { sample_rate: sampleRate, channels, buffer_frames: bufferFrames },
       (u) => {
-        if (!cancelled) setLevels(u.channels);
+        if (cancelled) return;
+        setLevels(u.channels);
+        if (recordingRef.current) {
+          recWave.current.buckets.push({
+            t: (performance.now() - recWave.current.start) / 1000,
+            min: u.wave_min,
+            max: u.wave_max,
+          });
+        }
       },
     )
       .then(() => {
@@ -212,14 +227,18 @@ export function useAudio() {
   const startRec = useCallback(async () => {
     try {
       setError(null);
+      recWave.current = { start: performance.now(), buckets: [] };
+      recordingRef.current = true;
       await startRecording();
       setRecording(true);
     } catch (e) {
+      recordingRef.current = false;
       setError(String(e));
     }
   }, []);
 
   const stopRec = useCallback(async () => {
+    recordingRef.current = false;
     try {
       const take = await stopRecording();
       setTakes((t) => [take, ...t]);
@@ -242,6 +261,7 @@ export function useAudio() {
     error,
     recording,
     recElapsed,
+    recWave,
     takes,
     canRecord: !!inputId && !!sampleRate,
     selectInput,

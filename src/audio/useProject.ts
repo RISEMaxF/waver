@@ -42,6 +42,7 @@ export function useProject() {
     setTrackGain: (id: string, g: number) => run(api.setTrackGain(id, g)),
     setTrackMuted: (id: string, m: boolean) => run(api.setTrackMuted(id, m)),
     setTrackSoloed: (id: string, s: boolean) => run(api.setTrackSoloed(id, s)),
+    addTrack: () => run(api.addTrack()),
     setFadeIn: (id: string, len: number, curve: api.FadeCurve) =>
       run(api.setClipFadeIn(id, len, curve)),
     setFadeOut: (id: string, len: number, curve: api.FadeCurve) =>

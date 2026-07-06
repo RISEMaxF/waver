@@ -592,6 +592,11 @@ body {
   opacity: 0.55;
 }
 
+.track-head.armed {
+  background: color-mix(in srgb, var(--err) 8%, transparent);
+  box-shadow: inset 3px 0 0 var(--err);
+}
+
 .track-head-top {
   display: flex;
   align-items: center;
@@ -622,6 +627,12 @@ body {
   font-size: var(--font-size-xs);
   font-weight: 700;
   cursor: pointer;
+}
+
+.ts-btn.arm.on {
+  background: color-mix(in srgb, var(--err) 30%, transparent);
+  border-color: var(--err);
+  color: var(--err);
 }
 
 .ts-btn.mute.on {

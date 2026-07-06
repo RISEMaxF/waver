@@ -6,6 +6,7 @@ import {
   useState,
 } from "react";
 import type { ClipView, FadeCurve, ProjectView } from "../audio/project";
+import { setRecordTarget } from "../audio/project";
 import type { ProjectApi } from "../audio/useProject";
 import { useTransport } from "../audio/useTransport";
 import { fetchPeaks, type PeakPyramid } from "../audio/peaks";
@@ -27,10 +28,18 @@ import {
   TRACK_HEIGHT,
 } from "./timeline/renderer";
 
+/** Live recording waveform buffer, timestamped from record start (see useAudio). */
+export type RecWaveRef = React.MutableRefObject<{
+  start: number;
+  buckets: { t: number; min: number; max: number }[];
+}>;
+
 interface Props {
   project: ProjectView | null;
   api: ProjectApi;
   outputId: string | null;
+  recording: boolean;
+  recWave: RecWaveRef;
 }
 
 type Drag =
@@ -54,7 +63,13 @@ function nextCurve(c: FadeCurve): FadeCurve {
       : "linear";
 }
 
-export function WaveformTimeline({ project, api, outputId }: Props) {
+export function WaveformTimeline({
+  project,
+  api,
+  outputId,
+  recording,
+  recWave,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const peaks = useRef<Map<string, PeakPyramid>>(new Map());
@@ -70,7 +85,12 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
   const [selected, setSelected] = useState<string | null>(null);
   const [ripple, setRipple] = useState(false);
   const [cursor, setCursor] = useState("default");
+  const [armedTrackId, setArmedTrackId] = useState<string | null>(null);
   const [, tick] = useState(0);
+  // Snapshot of where/when the current recording began (for the live overlay).
+  const recStartSec = useRef(0);
+  const recTrackId = useRef<string | null>(null);
+  const prevRecording = useRef(false);
 
   const sr = project?.sample_rate ?? 48000;
   const clipLen = (c: ClipView) => c.source_out - c.source_in;
@@ -82,6 +102,50 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
     sr,
     onPosition: setPlayheadSec,
   });
+
+  // Keep the armed track valid: default to the newest track; clear when none exist.
+  useEffect(() => {
+    const ids = project?.tracks.map((t) => t.id) ?? [];
+    if (armedTrackId && ids.includes(armedTrackId)) return;
+    setArmedTrackId(ids.length ? ids[ids.length - 1] : null);
+  }, [project, armedTrackId]);
+
+  // Tell the backend where the next take lands (armed track + playhead), except while
+  // playing/recording where the target must stay fixed.
+  useEffect(() => {
+    if (playing || recording) return;
+    setRecordTarget(armedTrackId, Math.round(playheadSec * sr)).catch(() => {});
+  }, [armedTrackId, playheadSec, playing, recording, sr]);
+
+  // On the record rising edge, snapshot where/when it began for the live overlay.
+  useEffect(() => {
+    if (recording && !prevRecording.current) {
+      recStartSec.current = playheadSec;
+      recTrackId.current = armedTrackId;
+    }
+    prevRecording.current = recording;
+  }, [recording, playheadSec, armedTrackId]);
+
+  // Redraw every frame while recording so the incoming waveform grows live.
+  useEffect(() => {
+    if (!recording) return;
+    let raf = 0;
+    let alive = true;
+    const loop = () => {
+      if (!alive) return;
+      drawRef.current();
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => {
+      alive = false;
+      cancelAnimationFrame(raf);
+    };
+  }, [recording]);
+
+  const toggleArm = useCallback((id: string) => {
+    setArmedTrackId((cur) => (cur === id ? null : id));
+  }, []);
 
   // Recompute the canvas palette when the theme (data-theme on <html> / OS scheme)
   // changes, then redraw so the timeline follows the theme.
@@ -336,6 +400,41 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
       }
     }
 
+    // Live recording waveform: a growing envelope on the armed track, plus a moving
+    // record cursor. Buckets are mutated in place by useAudio and read fresh here (the
+    // recording rAF drives repaints).
+    if (recording && recTrackId.current) {
+      const ti = (project?.tracks ?? []).findIndex(
+        (t) => t.id === recTrackId.current,
+      );
+      if (ti >= 0) {
+        const laneTop = RULER_HEIGHT + ti * TRACK_HEIGHT + 4;
+        const laneH = TRACK_HEIGHT - 8;
+        const mid = laneTop + laneH / 2;
+        const start = recStartSec.current;
+        const buckets = recWave.current.buckets;
+        ctx.fillStyle = th.waveSel;
+        for (let i = 0; i < buckets.length; i++) {
+          const b = buckets[i];
+          const x = (start + b.t - scrollSec) * pps;
+          if (x < -2 || x > width) continue;
+          const next = buckets[i + 1];
+          const bw = next ? Math.max(1, (next.t - b.t) * pps) : 1;
+          const y1 = mid - b.max * (laneH / 2) * 0.95;
+          const y2 = mid - b.min * (laneH / 2) * 0.95;
+          ctx.fillRect(x, Math.min(y1, y2), bw, Math.max(1, Math.abs(y2 - y1)));
+        }
+        const lastT = buckets.length ? buckets[buckets.length - 1].t : 0;
+        const cx = (start + lastT - scrollSec) * pps;
+        ctx.strokeStyle = th.playhead;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cx, laneTop);
+        ctx.lineTo(cx, laneTop + laneH);
+        ctx.stroke();
+      }
+    }
+
     const px = (playheadSec - scrollSec) * pps;
     if (px >= 0 && px <= width) {
       ctx.strokeStyle = th.playhead;
@@ -357,6 +456,8 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
     gridStep,
     snapSec,
     xToSec,
+    recording,
+    recWave,
   ]);
 
   drawRef.current = draw;
@@ -605,6 +706,14 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
         <span className="tb-sep" />
         <button
           type="button"
+          onClick={() => api.addTrack()}
+          title="Add an empty track"
+        >
+          ＋ Track
+        </button>
+        <span className="tb-sep" />
+        <button
+          type="button"
           onClick={() => setPps((p) => Math.min(MAX_PPS, p * 1.5))}
         >
           Zoom +
@@ -675,7 +784,12 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
         </span>
       </div>
       <div className="wave-body">
-        <TrackHeaders project={project} api={api} />
+        <TrackHeaders
+          project={project}
+          api={api}
+          armedTrackId={armedTrackId}
+          onToggleArm={toggleArm}
+        />
         <div className="wave-canvas-wrap" ref={wrapRef}>
           {!project || project.tracks.length === 0 ? (
             <p className="wave-empty">

@@ -63,6 +63,9 @@ export const setTrackMuted = (trackId: string, muted: boolean) =>
   invoke<ProjectView>("set_track_muted", { trackId, muted });
 export const setTrackSoloed = (trackId: string, soloed: boolean) =>
   invoke<ProjectView>("set_track_soloed", { trackId, soloed });
+export const addTrack = () => invoke<ProjectView>("add_track");
+export const setRecordTarget = (trackId: string | null, startFrame: number) =>
+  invoke<void>("set_record_target", { trackId, startFrame });
 export const setClipFadeIn = (
   clipId: string,
   lenFrames: number,

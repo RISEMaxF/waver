@@ -27,6 +27,9 @@ pub struct MeterFrame {
     pub peak: [f32; MAX_METER_CHANNELS],
     /// Per-channel sum of squares (f64 to avoid precision loss when accumulated).
     pub sumsq: [f64; MAX_METER_CHANNELS],
+    /// Signed min/max sample across all channels in the block (for the live waveform).
+    pub wave_min: f32,
+    pub wave_max: f32,
     /// Number of frames (samples per channel) represented.
     pub frames: u64,
 }
@@ -36,6 +39,8 @@ impl MeterFrame {
         channels: 0,
         peak: [0.0; MAX_METER_CHANNELS],
         sumsq: [0.0; MAX_METER_CHANNELS],
+        wave_min: 0.0,
+        wave_max: 0.0,
         frames: 0,
     };
 }
@@ -53,6 +58,8 @@ where
     let ch = channels.min(MAX_METER_CHANNELS);
     let mut peak = [0.0f32; MAX_METER_CHANNELS];
     let mut sumsq = [0.0f64; MAX_METER_CHANNELS];
+    let mut wave_min = 0.0f32;
+    let mut wave_max = 0.0f32;
 
     if channels == 0 {
         return MeterFrame::SILENT;
@@ -69,12 +76,20 @@ where
             peak[c] = a;
         }
         sumsq[c] += (s as f64) * (s as f64);
+        if s < wave_min {
+            wave_min = s;
+        }
+        if s > wave_max {
+            wave_max = s;
+        }
     }
 
     MeterFrame {
         channels: ch,
         peak,
         sumsq,
+        wave_min,
+        wave_max,
         frames: (block.len() / channels) as u64,
     }
 }
@@ -95,6 +110,8 @@ pub struct MeterAccumulator {
     channels: usize,
     peak: [f32; MAX_METER_CHANNELS],
     sumsq: [f64; MAX_METER_CHANNELS],
+    wave_min: f32,
+    wave_max: f32,
     frames: u64,
 }
 
@@ -110,6 +127,8 @@ impl MeterAccumulator {
             channels: 0,
             peak: [0.0; MAX_METER_CHANNELS],
             sumsq: [0.0; MAX_METER_CHANNELS],
+            wave_min: 0.0,
+            wave_max: 0.0,
             frames: 0,
         }
     }
@@ -126,6 +145,12 @@ impl MeterAccumulator {
                 self.peak[c] = f.peak[c];
             }
             self.sumsq[c] += f.sumsq[c];
+        }
+        if f.wave_min < self.wave_min {
+            self.wave_min = f.wave_min;
+        }
+        if f.wave_max > self.wave_max {
+            self.wave_max = f.wave_max;
         }
         self.frames += f.frames;
     }
@@ -144,13 +169,21 @@ impl MeterAccumulator {
             })
             .collect();
 
+        let update = MeterUpdate {
+            channels,
+            wave_min: self.wave_min,
+            wave_max: self.wave_max,
+        };
+
         // Reset.
         self.peak = [0.0; MAX_METER_CHANNELS];
         self.sumsq = [0.0; MAX_METER_CHANNELS];
+        self.wave_min = 0.0;
+        self.wave_max = 0.0;
         self.frames = 0;
         // Keep self.channels so a silent window still reports the right channel count.
 
-        MeterUpdate { channels }
+        update
     }
 }
 

@@ -68,6 +68,8 @@ function App() {
           project={project.project}
           api={project}
           outputId={audio.outputId}
+          recording={audio.recording}
+          recWave={audio.recWave}
         />
       </main>
     </div>

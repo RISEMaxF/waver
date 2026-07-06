@@ -149,6 +149,19 @@ more reliable. `Info.plist` already carries `NSMicrophoneUsageDescription`.
 - ⬜ **Audio settings popover**: the ⚙ button opens input/output/rate/buffer; closes on
   outside click.
 
+## Recording UX (Audacity-style tracks + live waveform)
+
+- ⬜ **Add / arm tracks.** `＋ Track` adds an empty lane; the newest is auto-armed (red
+  **R** + red left-edge). Click **R** to arm a different track. Confirm arming one
+  disarms the others.
+- ⬜ **Record into the armed track at the playhead.** Set the playhead, hit Rec; the take
+  should land on the armed track starting at the playhead (or appended if that would
+  overlap an existing clip). With no track armed, it appends to the first/new track.
+- ⬜ **Live waveform while recording.** The incoming signal draws a growing waveform on
+  the armed track with a moving record cursor. (Needs real mic input — under `dev` the
+  mic may be silent per the permission note above, so the live wave will be flat; use a
+  bundled build to see real signal.) On stop, it's replaced by the real rendered clip.
+
 ## Known follow-ups (from the M7/M8 review — not blocking)
 
 - **Streaming import/export.** Import decode and export mixdown currently buffer the

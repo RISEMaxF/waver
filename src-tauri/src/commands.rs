@@ -34,6 +34,9 @@ pub struct AudioState {
     session: Mutex<Option<InputSession>>,
     /// Path of the file currently being recorded, if any.
     recording_path: Mutex<Option<std::path::PathBuf>>,
+    /// Where the next recording lands: (armed track, start frame). `None` track means
+    /// "append to the first/new track" (the pre-arming behavior).
+    record_target: Mutex<(Option<uuid::Uuid>, u64)>,
     /// The non-destructive project model + edit history.
     edit: Mutex<EditState>,
     /// The active playback session, if any.
@@ -48,6 +51,7 @@ impl Default for AudioState {
             engine: NativeEngine::new(),
             session: Mutex::new(None),
             recording_path: Mutex::new(None),
+            record_target: Mutex::new((None, 0)),
             edit: Mutex::new(EditState {
                 project: Project::new(48_000),
                 history: History::default(),
@@ -273,6 +277,36 @@ pub fn close_input(state: State<'_, AudioState>) -> Result<(), String> {
     Ok(())
 }
 
+/// Add an empty track (Audacity-style: create a track, then arm it for recording).
+#[tauri::command]
+pub fn add_track(state: State<'_, AudioState>) -> ProjectView {
+    let mut guard = state.edit.lock().expect("edit mutex poisoned");
+    let st = &mut *guard;
+    st.history.snapshot(&st.project);
+    let name = format!("Track {}", st.project.tracks.len() + 1);
+    st.project.tracks.push(waver_core::model::Track::new(name));
+    ProjectView::of(&st.project, &st.history)
+}
+
+/// Arm where the next recording lands: a target track (or `None` to append) and the
+/// start frame (the playhead). The frontend keeps this in sync with the armed track.
+#[tauri::command]
+pub fn set_record_target(
+    state: State<'_, AudioState>,
+    track_id: Option<String>,
+    start_frame: u64,
+) -> Result<(), String> {
+    let id = match track_id {
+        Some(s) => Some(parse_id(&s)?),
+        None => None,
+    };
+    *state
+        .record_target
+        .lock()
+        .expect("record target mutex poisoned") = (id, start_frame);
+    Ok(())
+}
+
 /// FR-2.2/2.3 — start recording the open input to a fresh WAV in the app data dir.
 #[tauri::command]
 pub fn start_recording(app: AppHandle, state: State<'_, AudioState>) -> Result<String, String> {
@@ -337,17 +371,51 @@ pub fn stop_recording(state: State<'_, AudioState>) -> Result<RecordingResult, S
         info.sample_rate,
         info.frames,
     );
+    let (target_track, target_start) = *state
+        .record_target
+        .lock()
+        .expect("record target mutex poisoned");
+    let clip_len = info.frames;
+
     let (source_id, clip_id, start) = {
         let mut guard = state.edit.lock().expect("edit mutex poisoned");
         let st = &mut *guard;
-        // Append at the end of the (single) recording track, or a new track.
-        let track_id = st.project.tracks.first().map(|t| t.id);
-        let start = st
-            .project
-            .tracks
-            .first()
-            .and_then(|t| t.clips.iter().map(|c| c.timeline_end()).max())
-            .unwrap_or(0);
+
+        // Resolve where the take lands. Prefer the armed track at the playhead; if that
+        // would overlap an existing clip (which would break the non-overlap invariant),
+        // fall back to appending at the end of that track. With no armed track, append
+        // to the first/new track (the pre-arming behavior).
+        let armed = target_track.filter(|id| st.project.tracks.iter().any(|t| t.id == *id));
+        let (track_id, start) = match armed {
+            Some(tid) => {
+                let track = st.project.tracks.iter().find(|t| t.id == tid).unwrap();
+                let overlaps = track.clips.iter().any(|c| {
+                    target_start < c.timeline_end() && c.timeline_start < target_start + clip_len
+                });
+                let start = if overlaps {
+                    track
+                        .clips
+                        .iter()
+                        .map(|c| c.timeline_end())
+                        .max()
+                        .unwrap_or(0)
+                } else {
+                    target_start
+                };
+                (Some(tid), start)
+            }
+            None => {
+                let track_id = st.project.tracks.first().map(|t| t.id);
+                let start = st
+                    .project
+                    .tracks
+                    .first()
+                    .and_then(|t| t.clips.iter().map(|c| c.timeline_end()).max())
+                    .unwrap_or(0);
+                (track_id, start)
+            }
+        };
+
         // Placing a take is an undoable edit.
         st.history.snapshot(&st.project);
         let (sid, cid) = st.project.add_recording(source, track_id, start);
