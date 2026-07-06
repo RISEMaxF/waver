@@ -447,6 +447,12 @@ export function WaveformTimeline({
         const mid = laneTop + laneH / 2;
         const start = recStartSec.current;
         const buckets = recWave.current.buckets;
+        // Auto-scale the live waveform to its running peak so quiet input is visible
+        // (matches the recorded-clip display gain).
+        let pk = 0;
+        for (const b of buckets)
+          pk = Math.max(pk, Math.abs(b.max), Math.abs(b.min));
+        const gain = pk > 0.0001 ? Math.min(12, 0.9 / pk) : 1;
         ctx.fillStyle = th.waveSel;
         for (let i = 0; i < buckets.length; i++) {
           const b = buckets[i];
@@ -454,8 +460,10 @@ export function WaveformTimeline({
           if (x < -2 || x > width) continue;
           const next = buckets[i + 1];
           const bw = next ? Math.max(1, (next.t - b.t) * pps) : 1;
-          const y1 = mid - b.max * (laneH / 2) * 0.95;
-          const y2 = mid - b.min * (laneH / 2) * 0.95;
+          const h = Math.max(-1, Math.min(1, b.max * gain));
+          const l = Math.max(-1, Math.min(1, b.min * gain));
+          const y1 = mid - h * (laneH / 2) * 0.95;
+          const y2 = mid - l * (laneH / 2) * 0.95;
           ctx.fillRect(x, Math.min(y1, y2), bw, Math.max(1, Math.abs(y2 - y1)));
         }
         const lastT = buckets.length ? buckets[buckets.length - 1].t : 0;
@@ -663,10 +671,10 @@ export function WaveformTimeline({
 
   // ---- Drag a media-pool source onto a track ----
   const onCanvasDragOver = (e: React.DragEvent) => {
-    if (e.dataTransfer.types.includes("application/x-waver-source")) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "copy";
-    }
+    // Always allow the drop (some webviews don't expose custom drag types during
+    // dragover); onCanvasDrop validates the payload.
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
   };
 
   const onCanvasDrop = (e: React.DragEvent) => {

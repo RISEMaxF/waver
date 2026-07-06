@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { pausePlayback, play, playbackStatus, stopPlayback } from "./project";
 
 /** Encapsulates playback transport state (FR-6.1/6.2): play/pause/stop and a poll
@@ -13,9 +13,13 @@ export function useTransport(opts: {
   const { outputId, hasContent, startFrame, sr, onPosition } = opts;
   const [playing, setPlaying] = useState(false);
   const [paused, setPaused] = useState(false);
+  // Where the current playback began, captured at play() time (startFrame moves with
+  // the playhead during playback, so it can't be read back at end).
+  const playStartFrame = useRef(0);
 
   const startPlay = useCallback(() => {
     if (!outputId || !hasContent) return;
+    playStartFrame.current = startFrame;
     play(outputId, startFrame)
       .then(() => {
         setPlaying(true);
@@ -47,12 +51,15 @@ export function useTransport(opts: {
       try {
         const st = await playbackStatus();
         if (!alive) return;
-        onPosition(st.position_frames / sr);
         if (!st.playing) {
+          // Playback ended: return the playhead to where it started so pressing play
+          // again replays the same section (instead of starting from the end = silence).
           setPlaying(false);
           setPaused(false);
+          onPosition(playStartFrame.current / sr);
           return;
         }
+        onPosition(st.position_frames / sr);
       } catch {
         /* ignore */
       }

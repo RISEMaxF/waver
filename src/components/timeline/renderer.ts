@@ -142,6 +142,26 @@ export function drawFade(
   ctx.stroke();
 }
 
+// Per-source display gain, cached: fit the loudest sample to ~90% of the lane so quiet
+// recordings are visible, clamped so a near-silent take doesn't amplify the noise floor
+// to full scale. Computed from the coarsest (cheapest) pyramid level.
+const gainCache = new WeakMap<PeakPyramid, number>();
+export function waveDisplayGain(pyramid: PeakPyramid): number {
+  const cached = gainCache.get(pyramid);
+  if (cached !== undefined) return cached;
+  const lvl = pyramid.levels[0];
+  let peak = 0;
+  if (lvl) {
+    for (let i = 0; i < lvl.mins.length; i++) {
+      const a = Math.max(Math.abs(lvl.mins[i]), Math.abs(lvl.maxs[i]));
+      if (a > peak) peak = a;
+    }
+  }
+  const g = peak > 0.0001 ? Math.min(12, 0.9 / peak) : 1;
+  gainCache.set(pyramid, g);
+  return g;
+}
+
 export function drawClipWave(
   ctx: CanvasRenderingContext2D,
   pyramid: PeakPyramid,
@@ -166,6 +186,7 @@ export function drawClipWave(
     only == null ? Array.from({ length: srcCh }, (_, i) => i) : [only];
   const perChanH = laneH / drawChannels.length;
 
+  const gain = waveDisplayGain(pyramid);
   ctx.fillStyle = selected ? th.waveSel : th.wave;
   const pxStart = Math.max(0, Math.floor(x0));
   const pxEnd = Math.min(viewWidth, Math.ceil(x0 + w));
@@ -188,9 +209,11 @@ export function drawClipWave(
         hi = Math.max(hi, level.maxs[b * srcCh + c]);
       }
       if (!isFinite(lo)) return;
+      const h = Math.max(-1, Math.min(1, hi * gain));
+      const l = Math.max(-1, Math.min(1, lo * gain));
       const mid = top + laneIdx * perChanH + perChanH / 2;
-      const y1 = mid - hi * (perChanH / 2) * 0.95;
-      const y2 = mid - lo * (perChanH / 2) * 0.95;
+      const y1 = mid - h * (perChanH / 2) * 0.95;
+      const y2 = mid - l * (perChanH / 2) * 0.95;
       ctx.fillRect(px, Math.min(y1, y2), 1, Math.max(1, Math.abs(y2 - y1)));
     });
   }
