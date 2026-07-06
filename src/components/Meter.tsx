@@ -27,15 +27,26 @@ export function Meter({
   const holds = useRef<number[]>([]);
   const clipped = useRef<boolean[]>([]);
   const [, bump] = useState(0);
+  // Numeric readout updated at most ~5x/s (rounded to whole dB) so it's readable rather
+  // than a blur of decimals.
+  const [displayDb, setDisplayDb] = useState("-∞");
+  const lastDbAt = useRef(0);
 
   useEffect(() => {
+    let peak = MIN_DBFS;
     channels.forEach((ch, i) => {
       holds.current[i] = Math.max(
         ch.peak_dbfs,
         (holds.current[i] ?? MIN_DBFS) - PEAK_DECAY_DB,
       );
       if (ch.peak_dbfs >= -0.1) clipped.current[i] = true;
+      peak = Math.max(peak, ch.peak_dbfs);
     });
+    const now = performance.now();
+    if (now - lastDbAt.current > 200) {
+      lastDbAt.current = now;
+      setDisplayDb(peak <= MIN_DBFS ? "-∞" : String(Math.round(peak)));
+    }
     bump((n) => n + 1);
   }, [channels]);
 
@@ -53,7 +64,6 @@ export function Meter({
     );
   }
 
-  const maxPeak = channels.reduce((m, c) => Math.max(m, c.peak_dbfs), MIN_DBFS);
   const anyClip = clipped.current.some(Boolean);
 
   return (
@@ -101,7 +111,7 @@ export function Meter({
       </div>
       {compact && (
         <span className={`meter-compact-db${anyClip ? " clip" : ""}`}>
-          {anyClip ? "CLIP" : `${fmtDb(maxPeak)} dB`}
+          {anyClip ? "CLIP" : `${displayDb} dB`}
         </span>
       )}
     </div>

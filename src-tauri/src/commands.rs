@@ -53,7 +53,7 @@ impl Default for AudioState {
             recording_path: Mutex::new(None),
             record_target: Mutex::new((None, 0)),
             edit: Mutex::new(EditState {
-                project: Project::new(48_000),
+                project: new_project_with_track(48_000),
                 history: History::default(),
             }),
             playback: Mutex::new(None),
@@ -924,9 +924,17 @@ pub fn export_project(state: State<'_, AudioState>, req: ExportRequest) -> Resul
     waver_engine::export_project(&project, opts, &req.path).map_err(|e| e.to_string())
 }
 
-/// Reset to a fresh, empty project (keeping the current sample rate). Also stops any
-/// transport and clears the record target so no stale playback/recording state points
-/// at clips that no longer exist.
+/// A fresh project that always has one starter track (so New / first launch is never a
+/// zero-track dead end).
+fn new_project_with_track(sample_rate: u32) -> Project {
+    let mut p = Project::new(sample_rate);
+    p.add_track("Track 1");
+    p
+}
+
+/// Reset to a fresh project (keeping the current sample rate) with one starter track.
+/// Also stops any transport and clears the record target so no stale playback/recording
+/// state points at clips that no longer exist.
 #[tauri::command]
 pub fn new_project(state: State<'_, AudioState>) -> ProjectView {
     let _ = state
@@ -945,7 +953,7 @@ pub fn new_project(state: State<'_, AudioState>) -> ProjectView {
 
     let mut guard = state.edit.lock().expect("edit mutex poisoned");
     let sr = guard.project.sample_rate;
-    guard.project = Project::new(sr);
+    guard.project = new_project_with_track(sr);
     guard.history = History::default();
     ProjectView::of(&guard.project, &guard.history)
 }

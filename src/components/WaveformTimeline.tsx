@@ -161,13 +161,13 @@ export function WaveformTimeline({
       onPosition: setPlayheadSec,
     });
 
-  // If the armed track is deleted, clear the arm. Don't force an arm otherwise, so
-  // toggling R off stays off (recording with nothing armed is handled by the backend,
-  // which creates+places a track, and the live overlay falls back to the last track).
+  // Default-arm the first track (and re-arm when the armed one is deleted) so recording
+  // lands on an existing track instead of spawning a new one every take. Arming another
+  // track's R button overrides this.
   useEffect(() => {
-    if (armedTrackId && !project?.tracks.some((t) => t.id === armedTrackId)) {
-      setArmedTrackId(null);
-    }
+    const ids = project?.tracks.map((t) => t.id) ?? [];
+    if (armedTrackId && ids.includes(armedTrackId)) return;
+    setArmedTrackId(ids[0] ?? null);
   }, [project, armedTrackId]);
 
   // Keep the shared record target fresh (App commits it synchronously at record time),

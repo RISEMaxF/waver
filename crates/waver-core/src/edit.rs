@@ -38,9 +38,19 @@ pub struct ClipSpec {
     pub timeline_start: u64,
     pub gain_db: f32,
     pub fade_in_len: u64,
-    pub fade_in_curve: FadeCurve,
+    /// Curve name as the frontend sends it: "linear" | "equal_power" | "log".
+    pub fade_in_curve: String,
     pub fade_out_len: u64,
-    pub fade_out_curve: FadeCurve,
+    pub fade_out_curve: String,
+}
+
+/// Parse the frontend's lowercase curve name into a [`FadeCurve`].
+fn parse_curve(s: &str) -> FadeCurve {
+    match s {
+        "equal_power" => FadeCurve::EqualPower,
+        "log" => FadeCurve::Log,
+        _ => FadeCurve::Linear,
+    }
 }
 
 impl Project {
@@ -268,12 +278,31 @@ impl Project {
             .ok_or(EditError::TrackNotFound(track_id))
     }
 
-    /// Rename a clip.
+    /// Rename a clip — and every other clip that is *exactly the same* (same source and
+    /// in/out window, i.e. copies/duplicates of the same material), so renaming one of a
+    /// set of identical clips renames them all.
     pub fn set_clip_name(&mut self, clip_id: Uuid, name: String) -> Result<(), EditError> {
         let (ti, ci) = self
             .locate_clip(clip_id)
             .ok_or(EditError::ClipNotFound(clip_id))?;
-        self.tracks[ti].clips[ci].name = name;
+        let target = &self.tracks[ti].clips[ci];
+        let (sid, sin, sout, sch) = (
+            target.source_id,
+            target.source_in,
+            target.source_out,
+            target.source_channel,
+        );
+        for track in &mut self.tracks {
+            for clip in &mut track.clips {
+                if clip.source_id == sid
+                    && clip.source_in == sin
+                    && clip.source_out == sout
+                    && clip.source_channel == sch
+                {
+                    clip.name = name.clone();
+                }
+            }
+        }
         Ok(())
     }
 
@@ -320,11 +349,11 @@ impl Project {
         clip.gain_db = spec.gain_db;
         clip.fade_in = FadeSpec {
             len_frames: spec.fade_in_len,
-            curve: spec.fade_in_curve,
+            curve: parse_curve(&spec.fade_in_curve),
         };
         clip.fade_out = FadeSpec {
             len_frames: spec.fade_out_len,
-            curve: spec.fade_out_curve,
+            curve: parse_curve(&spec.fade_out_curve),
         };
         let new_id = clip.id;
         self.track_mut(track_id)?.clips.push(clip);
@@ -489,9 +518,9 @@ mod tests {
             timeline_start: 20_000,
             gain_db: 3.0,
             fade_in_len: 100,
-            fade_in_curve: FadeCurve::Linear,
+            fade_in_curve: "linear".to_string(),
             fade_out_len: 200,
-            fade_out_curve: FadeCurve::EqualPower,
+            fade_out_curve: "equal_power".to_string(),
         };
         let new_id = p.place_clip(spec, track_id).unwrap();
         let c = p.clip(new_id).unwrap();
@@ -500,6 +529,7 @@ mod tests {
         assert_eq!(c.timeline_start, 20_000);
         assert_eq!(c.gain_db, 3.0);
         assert_eq!(c.fade_out.len_frames, 200);
+        assert_eq!(c.fade_out.curve, FadeCurve::EqualPower); // string parsed correctly
         assert_eq!(p.validate(), Ok(()));
     }
 
