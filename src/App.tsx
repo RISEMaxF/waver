@@ -62,11 +62,13 @@ function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div className="brand">
-          <span className="brand-name">Waver</span>
-          {info && <span className="brand-ver">v{info.version}</span>}
+        <div className="topbar-left">
+          <div className="brand">
+            <span className="brand-name">Waver</span>
+            {info && <span className="brand-ver">v{info.version}</span>}
+          </div>
+          <FileBar project={project.project} onChanged={project.refresh} />
         </div>
-        <FileBar project={project.project} onChanged={project.refresh} />
         <AudioControls audio={audio} onToggleRecord={onToggleRecord} />
       </header>
 

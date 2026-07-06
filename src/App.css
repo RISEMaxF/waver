@@ -112,16 +112,23 @@ body {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px var(--space-4);
   padding: var(--space-2) var(--space-3);
   background: var(--color-panel);
   border-bottom: 1px solid var(--color-border);
-  min-height: 3.25rem;
-  overflow-x: auto;
-  overflow-y: hidden;
 }
-.topbar::-webkit-scrollbar {
-  height: 0;
+
+/* Brand + file tools reflow together; the audio cluster is the other wrap unit. When
+   the window is too narrow to fit both, the audio cluster drops to its own line
+   (left-aligned) instead of any control being clipped. */
+.topbar-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
 }
 
 .brand {
@@ -185,6 +192,7 @@ body {
 .filebar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -230,12 +238,10 @@ body {
 
 /* ==================== Audio controls (device + meter + record) ==================== */
 .audio-controls {
-  margin-left: auto;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding-left: var(--space-2);
 }
 
 .ac-device {
@@ -674,10 +680,10 @@ body {
   flex-shrink: 0;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-border);
-  overflow-x: auto;
 }
 
 /* ---- Transport: bigger, colored (green play / red stop) ---- */
