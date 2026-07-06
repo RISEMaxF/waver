@@ -14,8 +14,10 @@ function fmtElapsed(secs: number): string {
  *  pattern) rather than a scrolling panel. */
 export function AudioControls({
   audio,
+  onToggleRecord,
 }: {
   audio: ReturnType<typeof useAudio>;
+  onToggleRecord: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -71,7 +73,7 @@ export function AudioControls({
         type="button"
         className={`rec-btn ${audio.recording ? "stop" : "start"}`}
         disabled={!audio.canRecord}
-        onClick={audio.recording ? audio.stopRec : audio.startRec}
+        onClick={onToggleRecord}
         title={audio.recording ? "Stop recording" : "Record"}
       >
         <span className={audio.recording ? "rec-square" : "rec-dot"} />

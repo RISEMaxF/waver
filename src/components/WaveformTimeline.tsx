@@ -5,7 +5,12 @@ import {
   useRef,
   useState,
 } from "react";
-import type { ClipView, FadeCurve, ProjectView } from "../audio/project";
+import type {
+  ClipSpec,
+  ClipView,
+  FadeCurve,
+  ProjectView,
+} from "../audio/project";
 import { setRecordTarget } from "../audio/project";
 import type { ProjectApi } from "../audio/useProject";
 import { useTransport } from "../audio/useTransport";
@@ -189,7 +194,13 @@ export function WaveformTimeline({
           .then((p) => peaks.current.set(s.id, p))
           .catch(() => {}),
       ),
-    ).then(() => !cancelled && tick((n) => n + 1));
+    ).then(() => {
+      if (cancelled) return;
+      tick((n) => n + 1);
+      // Peaks arrive async and the draw effect keys on `draw` (not the peaks ref), so
+      // repaint explicitly — otherwise the clip stays flat until the next interaction.
+      drawRef.current();
+    });
     return () => {
       cancelled = true;
     };
@@ -403,10 +414,15 @@ export function WaveformTimeline({
     // Live recording waveform: a growing envelope on the armed track, plus a moving
     // record cursor. Buckets are mutated in place by useAudio and read fresh here (the
     // recording rAF drives repaints).
-    if (recording && recTrackId.current) {
-      const ti = (project?.tracks ?? []).findIndex(
-        (t) => t.id === recTrackId.current,
-      );
+    if (recording) {
+      // Prefer the track captured at record start; fall back to the armed track (e.g.
+      // when the backend auto-created a track because none was armed).
+      const tks = project?.tracks ?? [];
+      const liveId =
+        recTrackId.current && tks.some((t) => t.id === recTrackId.current)
+          ? recTrackId.current
+          : armedTrackId;
+      const ti = tks.findIndex((t) => t.id === liveId);
       if (ti >= 0) {
         const laneTop = RULER_HEIGHT + ti * TRACK_HEIGHT + 4;
         const laneH = TRACK_HEIGHT - 8;
@@ -443,6 +459,14 @@ export function WaveformTimeline({
       ctx.moveTo(px, 0);
       ctx.lineTo(px, height);
       ctx.stroke();
+      // Grabbable handle on the ruler — click/drag the ruler to move the start point.
+      ctx.fillStyle = th.playhead;
+      ctx.beginPath();
+      ctx.moveTo(px - 6, 0);
+      ctx.lineTo(px + 6, 0);
+      ctx.lineTo(px, 9);
+      ctx.closePath();
+      ctx.fill();
     }
   }, [
     project,
@@ -458,6 +482,7 @@ export function WaveformTimeline({
     xToSec,
     recording,
     recWave,
+    armedTrackId,
   ]);
 
   drawRef.current = draw;
@@ -637,6 +662,50 @@ export function WaveformTimeline({
     if (selected) api.split(selected, Math.round(playheadSec * sr));
   }, [selected, playheadSec, sr, api]);
 
+  // ---- Clipboard: copy / cut / paste / duplicate the selected clip ----
+  const clipboard = useRef<ClipView | null>(null);
+  const specFrom = (c: ClipView, timeline_start: number): ClipSpec => ({
+    source_id: c.source_id,
+    source_channel: c.source_channel,
+    source_in: c.source_in,
+    source_out: c.source_out,
+    timeline_start,
+    gain_db: c.gain_db,
+    fade_in_len: c.fade_in_len,
+    fade_in_curve: c.fade_in_curve,
+    fade_out_len: c.fade_out_len,
+    fade_out_curve: c.fade_out_curve,
+  });
+
+  const copySel = useCallback(() => {
+    const c = project && selected ? findClip(project, selected) : null;
+    if (c) clipboard.current = c;
+  }, [project, selected]);
+
+  const cutSel = useCallback(() => {
+    const c = project && selected ? findClip(project, selected) : null;
+    if (c) {
+      clipboard.current = c;
+      api.del(c.id, false);
+      setSelected(null);
+    }
+  }, [project, selected, api]);
+
+  const pasteAtPlayhead = useCallback(() => {
+    const c = clipboard.current;
+    const trackId = armedTrackId ?? project?.tracks[0]?.id;
+    if (!c || !trackId) return;
+    api.paste(specFrom(c, Math.round(playheadSec * sr)), trackId);
+  }, [armedTrackId, project, playheadSec, sr, api]);
+
+  const duplicateSel = useCallback(() => {
+    const c = project && selected ? findClip(project, selected) : null;
+    if (!c) return;
+    // Place the copy after the original, or at the playhead if that's later.
+    const end = c.timeline_start + (c.source_out - c.source_in);
+    api.duplicate(c.id, Math.max(end, Math.round(playheadSec * sr)));
+  }, [project, selected, playheadSec, sr, api]);
+
   // ---- Keyboard shortcuts (registered once; reads latest via a ref) ----
   const kb = useRef({
     api,
@@ -646,6 +715,10 @@ export function WaveformTimeline({
     playing,
     togglePause,
     startPlay,
+    copySel,
+    cutSel,
+    pasteAtPlayhead,
+    duplicateSel,
   });
   kb.current = {
     api,
@@ -655,6 +728,10 @@ export function WaveformTimeline({
     playing,
     togglePause,
     startPlay,
+    copySel,
+    cutSel,
+    pasteAtPlayhead,
+    duplicateSel,
   };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -662,16 +739,29 @@ export function WaveformTimeline({
       if (target && (target.tagName === "INPUT" || target.tagName === "SELECT"))
         return;
       const k = kb.current;
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
+      const mod = e.metaKey || e.ctrlKey;
+      const key = e.key.toLowerCase();
+      if (mod && key === "z") {
         e.preventDefault();
         e.shiftKey ? k.api.redo() : k.api.undo();
+      } else if (mod && key === "c") {
+        k.copySel();
+      } else if (mod && key === "x") {
+        e.preventDefault();
+        k.cutSel();
+      } else if (mod && key === "v") {
+        e.preventDefault();
+        k.pasteAtPlayhead();
+      } else if (mod && key === "d") {
+        e.preventDefault();
+        k.duplicateSel();
       } else if (e.key === "Delete" || e.key === "Backspace") {
         if (k.selected) {
           e.preventDefault();
           k.api.del(k.selected, k.ripple);
           setSelected(null);
         }
-      } else if (e.key.toLowerCase() === "s") {
+      } else if (key === "s" && !mod) {
         k.splitAtPlayhead();
       } else if (e.key === " ") {
         e.preventDefault();
@@ -732,6 +822,37 @@ export function WaveformTimeline({
           title="Split at playhead (S)"
         >
           ✂ Split
+        </button>
+        <button
+          type="button"
+          disabled={!selected}
+          onClick={duplicateSel}
+          title="Duplicate clip (⌘/Ctrl+D)"
+        >
+          ⧉ Duplicate
+        </button>
+        <button
+          type="button"
+          disabled={!selected}
+          onClick={cutSel}
+          title="Cut clip (⌘/Ctrl+X)"
+        >
+          ✁ Cut
+        </button>
+        <button
+          type="button"
+          disabled={!selected}
+          onClick={copySel}
+          title="Copy clip (⌘/Ctrl+C)"
+        >
+          ⧉ Copy
+        </button>
+        <button
+          type="button"
+          onClick={pasteAtPlayhead}
+          title="Paste at playhead on the armed track (⌘/Ctrl+V)"
+        >
+          ⊞ Paste
         </button>
         <button
           type="button"

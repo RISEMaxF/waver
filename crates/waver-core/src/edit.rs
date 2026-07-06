@@ -25,6 +25,22 @@ pub enum EditError {
     Invalid(String),
 }
 
+/// A fully-specified clip for paste/place: references a pooled source plus the clip's
+/// range, position, gain, and fades. Sent from the frontend clipboard.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClipSpec {
+    pub source_id: Uuid,
+    pub source_in: u64,
+    pub source_out: u64,
+    pub source_channel: Option<u16>,
+    pub timeline_start: u64,
+    pub gain_db: f32,
+    pub fade_in_len: u64,
+    pub fade_in_curve: FadeCurve,
+    pub fade_out_len: u64,
+    pub fade_out_curve: FadeCurve,
+}
+
 impl Project {
     /// Locate a clip by id, returning `(track_index, clip_index)`.
     fn locate_clip(&self, clip_id: Uuid) -> Option<(usize, usize)> {
@@ -234,6 +250,59 @@ impl Project {
             .ok_or(EditError::TrackNotFound(track_id))
     }
 
+    /// Remove a track and all its clips. Sources stay in the pool (they may be shared
+    /// or reused). Undoable via the snapshot history.
+    pub fn remove_track(&mut self, track_id: Uuid) -> Result<(), EditError> {
+        let before = self.tracks.len();
+        self.tracks.retain(|t| t.id != track_id);
+        if self.tracks.len() == before {
+            return Err(EditError::TrackNotFound(track_id));
+        }
+        Ok(())
+    }
+
+    /// Duplicate a clip (same source range, gain, fades, channel) onto its own track at
+    /// `timeline_start`. Returns the new clip id. Non-overlap is enforced at commit.
+    pub fn duplicate_clip(
+        &mut self,
+        clip_id: Uuid,
+        timeline_start: u64,
+    ) -> Result<Uuid, EditError> {
+        let (ti, ci) = self
+            .locate_clip(clip_id)
+            .ok_or(EditError::ClipNotFound(clip_id))?;
+        let mut copy = self.tracks[ti].clips[ci].clone();
+        copy.id = Uuid::new_v4();
+        copy.timeline_start = timeline_start;
+        let new_id = copy.id;
+        self.tracks[ti].clips.push(copy);
+        Ok(new_id)
+    }
+
+    /// Place a clip built from an explicit spec (used for paste). The source must exist
+    /// in the pool. Non-overlap is enforced at commit.
+    pub fn place_clip(&mut self, spec: ClipSpec, track_id: Uuid) -> Result<Uuid, EditError> {
+        let source = self
+            .source(spec.source_id)
+            .ok_or(EditError::SourceNotFound(spec.source_id))?;
+        let mut clip = Clip::new(source, spec.timeline_start);
+        clip.source_in = spec.source_in;
+        clip.source_out = spec.source_out;
+        clip.source_channel = spec.source_channel;
+        clip.gain_db = spec.gain_db;
+        clip.fade_in = FadeSpec {
+            len_frames: spec.fade_in_len,
+            curve: spec.fade_in_curve,
+        };
+        clip.fade_out = FadeSpec {
+            len_frames: spec.fade_out_len,
+            curve: spec.fade_out_curve,
+        };
+        let new_id = clip.id;
+        self.track_mut(track_id)?.clips.push(clip);
+        Ok(new_id)
+    }
+
     /// Set a clip's fade-in (spec FR-5.1). Length is clamped to the clip length.
     pub fn set_clip_fade_in(
         &mut self,
@@ -351,6 +420,58 @@ mod tests {
         let clip_id = clip.id;
         project.tracks[0].clips.push(clip);
         (project, track_id, clip_id)
+    }
+
+    #[test]
+    fn duplicate_clip_copies_range_and_position() {
+        let (mut p, _t, clip_id) = project_with_clip(); // clip spans [0, 10_000)
+        let new_id = p.duplicate_clip(clip_id, 10_000).unwrap();
+        assert_ne!(new_id, clip_id);
+        let orig = p.clip(clip_id).unwrap();
+        let dup = p.clip(new_id).unwrap();
+        assert_eq!(dup.source_in, orig.source_in);
+        assert_eq!(dup.source_out, orig.source_out);
+        assert_eq!(dup.timeline_start, 10_000);
+        assert_eq!(p.validate(), Ok(())); // no overlap
+    }
+
+    #[test]
+    fn remove_track_drops_clips_but_keeps_sources() {
+        let (mut p, track_id, _c) = project_with_clip();
+        assert_eq!(p.sources.len(), 1);
+        p.remove_track(track_id).unwrap();
+        assert!(p.tracks.is_empty());
+        assert_eq!(p.sources.len(), 1); // source pool untouched
+        assert_eq!(
+            p.remove_track(track_id),
+            Err(EditError::TrackNotFound(track_id))
+        );
+    }
+
+    #[test]
+    fn place_clip_pastes_from_spec() {
+        let (mut p, track_id, clip_id) = project_with_clip();
+        let src_id = p.clip(clip_id).unwrap().source_id;
+        let spec = ClipSpec {
+            source_id: src_id,
+            source_in: 2_000,
+            source_out: 5_000,
+            source_channel: None,
+            timeline_start: 20_000,
+            gain_db: 3.0,
+            fade_in_len: 100,
+            fade_in_curve: FadeCurve::Linear,
+            fade_out_len: 200,
+            fade_out_curve: FadeCurve::EqualPower,
+        };
+        let new_id = p.place_clip(spec, track_id).unwrap();
+        let c = p.clip(new_id).unwrap();
+        assert_eq!(c.source_in, 2_000);
+        assert_eq!(c.source_out, 5_000);
+        assert_eq!(c.timeline_start, 20_000);
+        assert_eq!(c.gain_db, 3.0);
+        assert_eq!(c.fade_out.len_frames, 200);
+        assert_eq!(p.validate(), Ok(()));
     }
 
     #[test]

@@ -64,6 +64,14 @@ export const setTrackMuted = (trackId: string, muted: boolean) =>
 export const setTrackSoloed = (trackId: string, soloed: boolean) =>
   invoke<ProjectView>("set_track_soloed", { trackId, soloed });
 export const addTrack = () => invoke<ProjectView>("add_track");
+export const removeTrack = (trackId: string) =>
+  invoke<ProjectView>("remove_track", { trackId });
+export const duplicateClip = (clipId: string, timelineStart: number) =>
+  invoke<ProjectView>("duplicate_clip", { clipId, timelineStart });
+/** A clip's paste spec — every ClipView field except its id. */
+export type ClipSpec = Omit<ClipView, "id">;
+export const pasteClip = (spec: ClipSpec, trackId: string) =>
+  invoke<ProjectView>("paste_clip", { spec, trackId });
 export const setRecordTarget = (trackId: string | null, startFrame: number) =>
   invoke<void>("set_record_target", { trackId, startFrame });
 export const setClipFadeIn = (

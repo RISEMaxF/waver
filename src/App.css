@@ -618,8 +618,9 @@ body {
 }
 
 .ts-btn {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   background: var(--bg);
@@ -627,6 +628,11 @@ body {
   font-size: var(--font-size-xs);
   font-weight: 700;
   cursor: pointer;
+}
+
+.ts-btn.remove:hover {
+  border-color: var(--err);
+  color: var(--err);
 }
 
 .ts-btn.arm.on {

@@ -1,3 +1,4 @@
+import { ask } from "@tauri-apps/plugin-dialog";
 import type { ProjectApi } from "../../audio/useProject";
 import type { ProjectView } from "../../audio/project";
 import { RULER_HEIGHT, TRACK_HEIGHT } from "./renderer";
@@ -20,6 +21,16 @@ export function TrackHeaders({
 }: Props) {
   const tracks = project?.tracks ?? [];
   const anySolo = tracks.some((t) => t.soloed);
+
+  const removeTrack = async (id: string, name: string, clipCount: number) => {
+    const warn =
+      clipCount > 0
+        ? `Delete “${name}” and its ${clipCount} clip${clipCount === 1 ? "" : "s"}? This can be undone.`
+        : `Delete “${name}”?`;
+    const ok = await ask(warn, { title: "Delete track", kind: "warning" });
+    if (ok) api.removeTrack(id);
+  };
+
   return (
     <div className="track-headers" aria-label="Track controls">
       <div className="track-headers-spacer" style={{ height: RULER_HEIGHT }} />
@@ -63,6 +74,15 @@ export function TrackHeaders({
                   aria-pressed={t.soloed}
                 >
                   S
+                </button>
+                <button
+                  type="button"
+                  className="ts-btn remove"
+                  onClick={() => removeTrack(t.id, t.name, t.clips.length)}
+                  title="Delete track"
+                  aria-label={`Delete ${t.name}`}
+                >
+                  ✕
                 </button>
               </div>
             </div>

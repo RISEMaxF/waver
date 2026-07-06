@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAudio } from "./audio/useAudio";
 import { useProject } from "./audio/useProject";
@@ -32,6 +32,17 @@ function App() {
     }
   }, [audio.takes, project]);
 
+  // Toggle recording; refresh after starting so a just-created track (armed on the
+  // backend when nothing was armed) shows up and the live waveform has a lane.
+  const onToggleRecord = useCallback(async () => {
+    if (audio.recording) {
+      audio.stopRec();
+      return;
+    }
+    await audio.startRec();
+    project.refresh();
+  }, [audio, project]);
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -40,7 +51,7 @@ function App() {
           {info && <span className="brand-ver">v{info.version}</span>}
         </div>
         <FileBar project={project.project} onChanged={project.refresh} />
-        <AudioControls audio={audio} />
+        <AudioControls audio={audio} onToggleRecord={onToggleRecord} />
       </header>
 
       {(audio.notice || audio.error || project.error) && (

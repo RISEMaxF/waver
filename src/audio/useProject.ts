@@ -43,6 +43,10 @@ export function useProject() {
     setTrackMuted: (id: string, m: boolean) => run(api.setTrackMuted(id, m)),
     setTrackSoloed: (id: string, s: boolean) => run(api.setTrackSoloed(id, s)),
     addTrack: () => run(api.addTrack()),
+    removeTrack: (id: string) => run(api.removeTrack(id)),
+    duplicate: (id: string, start: number) => run(api.duplicateClip(id, start)),
+    paste: (spec: api.ClipSpec, trackId: string) =>
+      run(api.pasteClip(spec, trackId)),
     setFadeIn: (id: string, len: number, curve: api.FadeCurve) =>
       run(api.setClipFadeIn(id, len, curve)),
     setFadeOut: (id: string, len: number, curve: api.FadeCurve) =>

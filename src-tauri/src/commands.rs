@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_store::StoreExt;
-use waver_core::edit::{EditError, History};
+use waver_core::edit::{ClipSpec, EditError, History};
 use waver_core::engine::{DeviceInfo, HostInfo, MeterUpdate, StreamParams};
 use waver_core::model::{FadeCurve, Project, Source};
 use waver_engine::{
@@ -288,6 +288,35 @@ pub fn add_track(state: State<'_, AudioState>) -> ProjectView {
     ProjectView::of(&st.project, &st.history)
 }
 
+/// Remove a track and its clips (undoable).
+#[tauri::command]
+pub fn remove_track(state: State<'_, AudioState>, track_id: String) -> Result<ProjectView, String> {
+    let id = parse_id(&track_id)?;
+    apply_edit(&state, |p| p.remove_track(id))
+}
+
+/// Duplicate a clip onto its track at `timeline_start` (undoable).
+#[tauri::command]
+pub fn duplicate_clip(
+    state: State<'_, AudioState>,
+    clip_id: String,
+    timeline_start: u64,
+) -> Result<ProjectView, String> {
+    let id = parse_id(&clip_id)?;
+    apply_edit(&state, |p| p.duplicate_clip(id, timeline_start).map(|_| ()))
+}
+
+/// Paste a clip from an explicit spec (clipboard) onto a track (undoable).
+#[tauri::command]
+pub fn paste_clip(
+    state: State<'_, AudioState>,
+    spec: ClipSpec,
+    track_id: String,
+) -> Result<ProjectView, String> {
+    let tid = parse_id(&track_id)?;
+    apply_edit(&state, |p| p.place_clip(spec, tid).map(|_| ()))
+}
+
 /// Arm where the next recording lands: a target track (or `None` to append) and the
 /// start frame (the playhead). The frontend keeps this in sync with the armed track.
 #[tauri::command]
@@ -336,6 +365,23 @@ pub fn start_recording(app: AppHandle, state: State<'_, AudioState>) -> Result<S
         .recording_path
         .lock()
         .expect("rec path mutex poisoned") = Some(path.clone());
+
+    // If nothing is armed, create a track now (undoable) so the take has a home AND the
+    // live waveform has a lane to draw into — Audacity's "record makes a track" flow.
+    {
+        let mut tgt = state
+            .record_target
+            .lock()
+            .expect("record target mutex poisoned");
+        if tgt.0.is_none() {
+            let mut guard = state.edit.lock().expect("edit mutex poisoned");
+            let st = &mut *guard;
+            st.history.snapshot(&st.project);
+            let name = format!("Track {}", st.project.tracks.len() + 1);
+            tgt.0 = Some(st.project.add_track(name));
+        }
+    }
+
     Ok(path.to_string_lossy().to_string())
 }
 
