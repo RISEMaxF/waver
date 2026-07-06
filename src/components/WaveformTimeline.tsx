@@ -5,74 +5,31 @@ import {
   useRef,
   useState,
 } from "react";
-import type { ClipView, ProjectView } from "../audio/project";
-import {
-  pausePlayback,
-  play,
-  playbackStatus,
-  stopPlayback,
-} from "../audio/project";
+import type { ClipView, FadeCurve, ProjectView } from "../audio/project";
 import type { ProjectApi } from "../audio/useProject";
+import { useTransport } from "../audio/useTransport";
+import { fetchPeaks, type PeakPyramid } from "../audio/peaks";
+import { Inspector } from "./timeline/Inspector";
 import {
-  fetchPeaks,
-  pickLevel,
-  type PeakLevel,
-  type PeakPyramid,
-} from "../audio/peaks";
+  drawClipWave,
+  drawFade,
+  findClip,
+  fmtTime,
+  laneTopForY,
+  readCanvasTheme,
+  type CanvasTheme,
+  EDGE_PX,
+  MAX_PPS,
+  MIN_PPS,
+  RULER_HEIGHT,
+  SNAP_PX,
+  TRACK_HEIGHT,
+} from "./timeline/renderer";
 
 interface Props {
   project: ProjectView | null;
   api: ProjectApi;
   outputId: string | null;
-}
-
-const TRACK_HEIGHT = 88;
-const RULER_HEIGHT = 22;
-const EDGE_PX = 6;
-const SNAP_PX = 8;
-const MIN_PPS = 2;
-const MAX_PPS = 6000;
-
-interface CanvasTheme {
-  bg: string;
-  ruler: string;
-  grid: string;
-  lane: string;
-  laneAlt: string;
-  clip: string;
-  clipSel: string;
-  clipEdge: string;
-  clipEdgeSel: string;
-  wave: string;
-  waveSel: string;
-  playhead: string;
-  snap: string;
-  fadeFill: string;
-}
-
-// The canvas can't read CSS variables directly, so resolve the --wave-* design
-// tokens (src/styles/tokens.css) via getComputedStyle. Recomputed on theme change,
-// so a rebrand or light/dark swap flows to the timeline automatically.
-function readCanvasTheme(): CanvasTheme {
-  const cs = getComputedStyle(document.documentElement);
-  const v = (n: string, fallback: string) =>
-    cs.getPropertyValue(n).trim() || fallback;
-  return {
-    bg: v("--color-surface", "#0e1116"),
-    ruler: v("--wave-ruler", "#8b97a6"),
-    grid: v("--wave-grid", "#1c232e"),
-    lane: v("--wave-lane", "#12161c"),
-    laneAlt: v("--wave-lane-alt", "#0f1319"),
-    clip: v("--wave-clip", "#16324a"),
-    clipSel: v("--wave-clip-sel", "#1d4a6b"),
-    clipEdge: v("--wave-clip-edge", "#2b6a93"),
-    clipEdgeSel: v("--wave-clip-edge-sel", "#4cc2ff"),
-    wave: v("--wave", "#4cc2ff"),
-    waveSel: v("--wave-sel", "#8fd6ff"),
-    playhead: v("--wave-playhead", "#f85149"),
-    snap: v("--wave-snap", "#d29922"),
-    fadeFill: v("--wave-fade-fill", "rgba(14,17,22,0.55)"),
-  };
 }
 
 type Drag =
@@ -84,12 +41,16 @@ type Drag =
   | { kind: "scrub" }
   | null;
 
-// fade-in gain shape mirror of waver_core::FadeCurve::fade_in_gain.
-function fadeGain(curve: string, t: number): number {
-  const c = Math.min(1, Math.max(0, t));
-  if (curve === "equal_power") return Math.sin((c * Math.PI) / 2);
-  if (curve === "log") return c * c;
-  return c;
+type Zone = "trim-start" | "trim-end" | "fade-in" | "fade-out" | "body";
+
+const FADE_ZONE_PX = 22;
+
+function nextCurve(c: FadeCurve): FadeCurve {
+  return c === "linear"
+    ? "equal_power"
+    : c === "equal_power"
+      ? "log"
+      : "linear";
 }
 
 export function WaveformTimeline({ project, api, outputId }: Props) {
@@ -107,14 +68,22 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
   const [playheadSec, setPlayheadSec] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [ripple, setRipple] = useState(false);
-  const [playing, setPlaying] = useState(false);
-  const [paused, setPaused] = useState(false);
+  const [cursor, setCursor] = useState("default");
   const [, tick] = useState(0);
 
   const sr = project?.sample_rate ?? 48000;
+  const clipLen = (c: ClipView) => c.source_out - c.source_in;
 
-  // Recompute the canvas palette when the theme changes (data-theme on <html> or the
-  // OS light/dark preference), then redraw so the timeline follows the theme.
+  const { playing, paused, startPlay, togglePause, stopPlay } = useTransport({
+    outputId,
+    hasContent: !!project && project.tracks.length > 0,
+    startFrame: Math.round(playheadSec * sr),
+    sr,
+    onPosition: setPlayheadSec,
+  });
+
+  // Recompute the canvas palette when the theme (data-theme on <html> / OS scheme)
+  // changes, then redraw so the timeline follows the theme.
   useEffect(() => {
     const update = () => {
       theme.current = readCanvasTheme();
@@ -133,57 +102,6 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
       mql.removeEventListener("change", update);
     };
   }, []);
-
-  // ---- Transport (FR-6.1/6.2) ----
-  const startPlay = useCallback(() => {
-    if (!outputId || !project) return;
-    play(outputId, Math.round(playheadSec * sr))
-      .then(() => {
-        setPlaying(true);
-        setPaused(false);
-      })
-      .catch(() => {});
-  }, [outputId, project, playheadSec, sr]);
-
-  const togglePause = useCallback(() => {
-    const next = !paused;
-    pausePlayback(next).catch(() => {});
-    setPaused(next);
-  }, [paused]);
-
-  const stopPlay = useCallback(() => {
-    stopPlayback().catch(() => {});
-    setPlaying(false);
-    setPaused(false);
-  }, []);
-
-  // Poll the transport while playing; the playhead follows the audible output.
-  useEffect(() => {
-    if (!playing) return;
-    let raf = 0;
-    let alive = true;
-    const poll = async () => {
-      try {
-        const st = await playbackStatus();
-        if (!alive) return;
-        setPlayheadSec(st.position_frames / sr);
-        if (!st.playing) {
-          setPlaying(false);
-          setPaused(false);
-          return;
-        }
-      } catch {
-        /* ignore */
-      }
-      if (alive) raf = requestAnimationFrame(poll);
-    };
-    raf = requestAnimationFrame(poll);
-    return () => {
-      alive = false;
-      cancelAnimationFrame(raf);
-    };
-  }, [playing, sr]);
-  const clipLen = (c: ClipView) => c.source_out - c.source_in;
 
   useLayoutEffect(() => {
     const el = wrapRef.current;
@@ -220,14 +138,21 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
   const height =
     RULER_HEIGHT + Math.max(1, project?.tracks.length ?? 1) * TRACK_HEIGHT;
 
+  const gridStep = useCallback(() => {
+    const raw = 80 / pps;
+    const steps = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300];
+    return steps.find((s) => s >= raw) ?? 600;
+  }, [pps]);
+
+  const xToSec = useCallback(
+    (x: number) => scrollSec + x / pps,
+    [scrollSec, pps],
+  );
+
   // ---- Snapping ----
   const snapSec = useCallback(
-    (sec: number, gridStep: number): number => {
-      const candidates: number[] = [playheadSec];
-      // grid
-      candidates.push(Math.round(sec / gridStep) * gridStep);
-      // clip edges — but never snap the dragged clip to its own edges, which would
-      // pin it in place and block fine moves.
+    (sec: number, step: number): number => {
+      const candidates: number[] = [playheadSec, Math.round(sec / step) * step];
       const dragged =
         drag.current && "clipId" in drag.current ? drag.current.clipId : null;
       for (const t of project?.tracks ?? []) {
@@ -253,12 +178,6 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
     [project, sr, pps, playheadSec],
   );
 
-  const gridStep = useCallback(() => {
-    const raw = 80 / pps;
-    const steps = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300];
-    return steps.find((s) => s >= raw) ?? 600;
-  }, [pps]);
-
   // ---- Draw ----
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -270,21 +189,20 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = theme.current.bg;
+    const th = theme.current;
+    ctx.fillStyle = th.bg;
     ctx.fillRect(0, 0, width, height);
 
     const step = gridStep();
 
-    // Track lanes.
     (project?.tracks ?? []).forEach((_t, i) => {
-      ctx.fillStyle = i % 2 ? theme.current.laneAlt : theme.current.lane;
+      ctx.fillStyle = i % 2 ? th.laneAlt : th.lane;
       ctx.fillRect(0, RULER_HEIGHT + i * TRACK_HEIGHT, width, TRACK_HEIGHT);
     });
 
-    // Ruler + gridlines.
-    ctx.fillStyle = theme.current.ruler;
+    ctx.fillStyle = th.ruler;
     ctx.font = "10px system-ui, sans-serif";
-    ctx.strokeStyle = theme.current.grid;
+    ctx.strokeStyle = th.grid;
     ctx.lineWidth = 1;
     const first = Math.ceil(scrollSec / step) * step;
     for (let t = first; (t - scrollSec) * pps <= width; t += step) {
@@ -296,12 +214,10 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
       ctx.fillText(fmtTime(t, step), x + 3, 14);
     }
 
-    // Clips.
     (project?.tracks ?? []).forEach((track, ti) => {
       const laneTop = RULER_HEIGHT + ti * TRACK_HEIGHT + 4;
       const laneH = TRACK_HEIGHT - 8;
       for (const clip of track.clips) {
-        // If this clip is being move-dragged, draw it as a ghost at cursor instead.
         const d = drag.current;
         let startSec = clip.timeline_start / sr;
         let drawTop = laneTop;
@@ -312,7 +228,6 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
           ghost = true;
         }
         let lenSec = clipLen(clip) / sr;
-        // Trim ghosts.
         if (d && d.kind === "trim-end" && d.clipId === clip.id) {
           const end = snapSec(xToSec(mouse.current.x), step);
           lenSec = Math.max(1 / sr, end - startSec);
@@ -330,12 +245,10 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
         const w = lenSec * pps;
         if (x0 + w < 0 || x0 > width) continue;
         const isSel = clip.id === selected;
-        ctx.fillStyle = isSel ? theme.current.clipSel : theme.current.clip;
+        ctx.fillStyle = isSel ? th.clipSel : th.clip;
         ctx.globalAlpha = ghost ? 0.6 : 1;
         ctx.fillRect(x0, drawTop, w, laneH);
-        ctx.strokeStyle = isSel
-          ? theme.current.clipEdgeSel
-          : theme.current.clipEdge;
+        ctx.strokeStyle = isSel ? th.clipEdgeSel : th.clipEdge;
         ctx.lineWidth = isSel ? 2 : 1;
         ctx.strokeRect(
           Math.round(x0) + 0.5,
@@ -358,7 +271,7 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
             sr,
             isSel,
             width,
-            theme.current,
+            th,
           );
 
         // Fade envelopes (live length during a fade drag).
@@ -389,7 +302,7 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
           drawTop,
           w,
           laneH,
-          theme.current,
+          th,
         );
         drawFade(
           ctx,
@@ -402,17 +315,16 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
           drawTop,
           w,
           laneH,
-          theme.current,
+          th,
         );
         ctx.globalAlpha = 1;
       }
     });
 
-    // Snap guide line.
     if (drag.current && snapLine.current != null) {
       const x = (snapLine.current - scrollSec) * pps;
       if (x >= 0 && x <= width) {
-        ctx.strokeStyle = theme.current.snap;
+        ctx.strokeStyle = th.snap;
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 3]);
         ctx.beginPath();
@@ -423,10 +335,9 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
       }
     }
 
-    // Playhead.
     const px = (playheadSec - scrollSec) * pps;
     if (px >= 0 && px <= width) {
-      ctx.strokeStyle = theme.current.playhead;
+      ctx.strokeStyle = th.playhead;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(px, 0);
@@ -444,6 +355,7 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
     sr,
     gridStep,
     snapSec,
+    xToSec,
   ]);
 
   drawRef.current = draw;
@@ -451,39 +363,41 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
     draw();
   }, [draw]);
 
-  const xToSec = useCallback(
-    (x: number) => scrollSec + x / pps,
-    [scrollSec, pps],
+  // ---- Hit testing ----
+  const hitTest = useCallback(
+    (x: number, y: number): { clip: ClipView; zone: Zone } | null => {
+      if (!project || y < RULER_HEIGHT) return null;
+      const ti = Math.floor((y - RULER_HEIGHT) / TRACK_HEIGHT);
+      const track = project.tracks[ti];
+      if (!track) return null;
+      const laneTop = RULER_HEIGHT + ti * TRACK_HEIGHT + 4;
+      const inTopStrip = y <= laneTop + 14;
+      for (const clip of track.clips) {
+        const x0 = (clip.timeline_start / sr - scrollSec) * pps;
+        const w = (clipLen(clip) / sr) * pps;
+        if (x < x0 - EDGE_PX || x > x0 + w + EDGE_PX) continue;
+        if (inTopStrip && x >= x0 && x <= x0 + FADE_ZONE_PX)
+          return { clip, zone: "fade-in" };
+        if (inTopStrip && x >= x0 + w - FADE_ZONE_PX && x <= x0 + w)
+          return { clip, zone: "fade-out" };
+        if (Math.abs(x - x0) <= EDGE_PX) return { clip, zone: "trim-start" };
+        if (Math.abs(x - (x0 + w)) <= EDGE_PX)
+          return { clip, zone: "trim-end" };
+        if (x >= x0 && x <= x0 + w) return { clip, zone: "body" };
+      }
+      return null;
+    },
+    [project, sr, scrollSec, pps],
   );
 
-  // ---- Mouse interaction ----
-  type Zone = "trim-start" | "trim-end" | "fade-in" | "fade-out" | "body";
-  const hitTest = (
-    x: number,
-    y: number,
-  ): { clip: ClipView; zone: Zone } | null => {
-    if (!project || y < RULER_HEIGHT) return null;
-    const ti = Math.floor((y - RULER_HEIGHT) / TRACK_HEIGHT);
-    const track = project.tracks[ti];
-    if (!track) return null;
-    const laneTop = RULER_HEIGHT + ti * TRACK_HEIGHT + 4;
-    const inTopStrip = y <= laneTop + 14;
-    const FADE_ZONE = 22;
-    for (const clip of track.clips) {
-      const x0 = (clip.timeline_start / sr - scrollSec) * pps;
-      const w = (clipLen(clip) / sr) * pps;
-      if (x < x0 - EDGE_PX || x > x0 + w + EDGE_PX) continue;
-      // Fade handles live in the top strip near each corner.
-      if (inTopStrip && x >= x0 && x <= x0 + FADE_ZONE)
-        return { clip, zone: "fade-in" };
-      if (inTopStrip && x >= x0 + w - FADE_ZONE && x <= x0 + w)
-        return { clip, zone: "fade-out" };
-      if (Math.abs(x - x0) <= EDGE_PX) return { clip, zone: "trim-start" };
-      if (Math.abs(x - (x0 + w)) <= EDGE_PX) return { clip, zone: "trim-end" };
-      if (x >= x0 && x <= x0 + w) return { clip, zone: "body" };
-    }
-    return null;
-  };
+  const cursorFor = (zone: Zone | null): string =>
+    zone === "trim-start" || zone === "trim-end"
+      ? "col-resize"
+      : zone === "fade-in" || zone === "fade-out"
+        ? "pointer"
+        : zone === "body"
+          ? "grab"
+          : "default";
 
   const onMouseDown = (e: React.MouseEvent) => {
     const rect = canvasRef.current!.getBoundingClientRect();
@@ -519,10 +433,16 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
   const onMouseMove = (e: React.MouseEvent) => {
     const rect = canvasRef.current!.getBoundingClientRect();
     mouse.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    if (drag.current && drag.current.kind === "scrub") {
-      setPlayheadSec(Math.max(0, xToSec(mouse.current.x)));
+    if (drag.current) {
+      if (drag.current.kind === "scrub")
+        setPlayheadSec(Math.max(0, xToSec(mouse.current.x)));
+      drawRef.current();
+    } else {
+      // Cursor affordance: telegraph what a drag here would do.
+      setCursor(
+        cursorFor(hitTest(mouse.current.x, mouse.current.y)?.zone ?? null),
+      );
     }
-    if (drag.current) drawRef.current();
   };
 
   const onMouseUp = () => {
@@ -545,8 +465,7 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
       const curTrack = project.tracks.find((t) =>
         t.clips.some((c) => c.id === clip.id),
       );
-      // Only commit an actual change — a plain click to select must not push a
-      // no-op move (which would pollute undo history and wipe the redo stack).
+      // Only commit a real change — a plain click to select must not push a no-op move.
       if (
         track &&
         (track.id !== curTrack?.id || newStart !== clip.timeline_start)
@@ -554,38 +473,47 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
         api.move(clip.id, track.id, newStart);
       }
     } else if (d.kind === "trim-end" && clip) {
-      const end = snapSec(xToSec(mouse.current.x), step);
-      const frame = Math.round(end * sr);
+      const frame = Math.round(snapSec(xToSec(mouse.current.x), step) * sr);
       if (frame !== clip.timeline_start + clipLen(clip))
         api.trimEnd(clip.id, frame);
     } else if (d.kind === "trim-start" && clip) {
-      const ns = snapSec(xToSec(mouse.current.x), step);
-      const frame = Math.round(ns * sr);
+      const frame = Math.round(snapSec(xToSec(mouse.current.x), step) * sr);
       if (frame !== clip.timeline_start) api.trimStart(clip.id, frame);
     } else if (d.kind === "fade-in" && clip) {
-      // Fade length = distance from the clip start to the cursor.
       const lenFrames = Math.max(
         0,
         Math.round((xToSec(mouse.current.x) - clip.timeline_start / sr) * sr),
       );
-      api.setFadeIn(
-        clip.id,
-        lenFrames,
-        clip.fade_in_curve as "linear" | "equal_power" | "log",
-      );
+      api.setFadeIn(clip.id, lenFrames, clip.fade_in_curve as FadeCurve);
     } else if (d.kind === "fade-out" && clip) {
       const clipEndSec = (clip.timeline_start + clipLen(clip)) / sr;
       const lenFrames = Math.max(
         0,
         Math.round((clipEndSec - xToSec(mouse.current.x)) * sr),
       );
-      api.setFadeOut(
-        clip.id,
-        lenFrames,
-        clip.fade_out_curve as "linear" | "equal_power" | "log",
-      );
+      api.setFadeOut(clip.id, lenFrames, clip.fade_out_curve as FadeCurve);
     }
     tick((n) => n + 1);
+  };
+
+  // Double-click a fade region to cycle its curve shape.
+  const onDoubleClick = (e: React.MouseEvent) => {
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const hit = hitTest(e.clientX - rect.left, e.clientY - rect.top);
+    if (!hit) return;
+    if (hit.zone === "fade-in") {
+      api.setFadeIn(
+        hit.clip.id,
+        hit.clip.fade_in_len,
+        nextCurve(hit.clip.fade_in_curve as FadeCurve),
+      );
+    } else if (hit.zone === "fade-out") {
+      api.setFadeOut(
+        hit.clip.id,
+        hit.clip.fade_out_len,
+        nextCurve(hit.clip.fade_out_curve as FadeCurve),
+      );
+    }
   };
 
   const onWheel = (e: React.WheelEvent) => {
@@ -603,38 +531,54 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
     }
   };
 
-  // Split the selected clip at the playhead.
   const splitAtPlayhead = useCallback(() => {
-    if (!selected) return;
-    api.split(selected, Math.round(playheadSec * sr));
+    if (selected) api.split(selected, Math.round(playheadSec * sr));
   }, [selected, playheadSec, sr, api]);
 
-  // ---- Keyboard shortcuts ----
+  // ---- Keyboard shortcuts (registered once; reads latest via a ref) ----
+  const kb = useRef({
+    api,
+    selected,
+    ripple,
+    splitAtPlayhead,
+    playing,
+    togglePause,
+    startPlay,
+  });
+  kb.current = {
+    api,
+    selected,
+    ripple,
+    splitAtPlayhead,
+    playing,
+    togglePause,
+    startPlay,
+  };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target && (target.tagName === "INPUT" || target.tagName === "SELECT"))
         return;
+      const k = kb.current;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
-        e.shiftKey ? api.redo() : api.undo();
+        e.shiftKey ? k.api.redo() : k.api.undo();
       } else if (e.key === "Delete" || e.key === "Backspace") {
-        if (selected) {
+        if (k.selected) {
           e.preventDefault();
-          api.del(selected, ripple);
+          k.api.del(k.selected, k.ripple);
           setSelected(null);
         }
       } else if (e.key.toLowerCase() === "s") {
-        splitAtPlayhead();
+        k.splitAtPlayhead();
       } else if (e.key === " ") {
         e.preventDefault();
-        if (playing) togglePause();
-        else startPlay();
+        k.playing ? k.togglePause() : k.startPlay();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [api, selected, ripple, splitAtPlayhead, playing, togglePause, startPlay]);
+  }, []);
 
   return (
     <div className="waveform">
@@ -737,14 +681,17 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
         ) : (
           <canvas
             ref={canvasRef}
+            role="application"
+            aria-label="Timeline editor"
             style={{
               width: "100%",
-              cursor: drag.current ? "grabbing" : "default",
+              cursor: drag.current ? "grabbing" : cursor,
             }}
             onMouseDown={onMouseDown}
             onMouseMove={onMouseMove}
             onMouseUp={onMouseUp}
             onMouseLeave={onMouseUp}
+            onDoubleClick={onDoubleClick}
             onWheel={onWheel}
           />
         )}
@@ -752,258 +699,4 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
       <Inspector project={project} selected={selected} api={api} sr={sr} />
     </div>
   );
-}
-
-function Inspector({
-  project,
-  selected,
-  api,
-  sr,
-}: {
-  project: ProjectView | null;
-  selected: string | null;
-  api: ProjectApi;
-  sr: number;
-}) {
-  if (!project || !selected) {
-    return (
-      <div className="inspector empty">
-        Select a clip to edit its gain and fades.
-      </div>
-    );
-  }
-  let clip: ClipView | undefined;
-  let track = project.tracks.find((t) => {
-    const c = t.clips.find((c) => c.id === selected);
-    if (c) clip = c;
-    return !!c;
-  });
-  if (!clip || !track) {
-    return (
-      <div className="inspector empty">
-        Select a clip to edit its gain and fades.
-      </div>
-    );
-  }
-  const c = clip;
-  const t = track;
-  const curves: ("linear" | "equal_power" | "log")[] = [
-    "linear",
-    "equal_power",
-    "log",
-  ];
-  const msFrom = (frames: number) => Math.round((frames / sr) * 1000);
-  const framesFrom = (ms: number) => Math.round((ms / 1000) * sr);
-
-  return (
-    <div className="inspector">
-      <div className="insp-group">
-        <span className="insp-label">Clip gain</span>
-        <input
-          type="range"
-          min={-24}
-          max={12}
-          step={0.5}
-          value={c.gain_db}
-          onChange={(e) => api.setClipGain(c.id, Number(e.target.value))}
-        />
-        <span className="insp-val">{c.gain_db.toFixed(1)} dB</span>
-      </div>
-      <div className="insp-group">
-        <span className="insp-label">Fade in</span>
-        <input
-          type="number"
-          min={0}
-          value={msFrom(c.fade_in_len)}
-          onChange={(e) =>
-            api.setFadeIn(
-              c.id,
-              framesFrom(Number(e.target.value)),
-              c.fade_in_curve as never,
-            )
-          }
-        />
-        <span className="insp-unit">ms</span>
-        <select
-          value={c.fade_in_curve}
-          onChange={(e) =>
-            api.setFadeIn(c.id, c.fade_in_len, e.target.value as never)
-          }
-        >
-          {curves.map((cv) => (
-            <option key={cv} value={cv}>
-              {cv}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="insp-group">
-        <span className="insp-label">Fade out</span>
-        <input
-          type="number"
-          min={0}
-          value={msFrom(c.fade_out_len)}
-          onChange={(e) =>
-            api.setFadeOut(
-              c.id,
-              framesFrom(Number(e.target.value)),
-              c.fade_out_curve as never,
-            )
-          }
-        />
-        <span className="insp-unit">ms</span>
-        <select
-          value={c.fade_out_curve}
-          onChange={(e) =>
-            api.setFadeOut(c.id, c.fade_out_len, e.target.value as never)
-          }
-        >
-          {curves.map((cv) => (
-            <option key={cv} value={cv}>
-              {cv}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="insp-group">
-        <span className="insp-label">Track “{t.name}” gain</span>
-        <input
-          type="range"
-          min={-24}
-          max={12}
-          step={0.5}
-          value={t.gain_db}
-          onChange={(e) => api.setTrackGain(t.id, Number(e.target.value))}
-        />
-        <span className="insp-val">{t.gain_db.toFixed(1)} dB</span>
-      </div>
-    </div>
-  );
-}
-
-// ---- helpers ----
-
-function drawFade(
-  ctx: CanvasRenderingContext2D,
-  side: "in" | "out",
-  curve: string,
-  fadeFrames: number,
-  sr: number,
-  pps: number,
-  x0: number,
-  top: number,
-  w: number,
-  laneH: number,
-  th: CanvasTheme,
-) {
-  if (fadeFrames <= 0) return;
-  const fadeW = Math.min(w, (fadeFrames / sr) * pps);
-  if (fadeW < 1) return;
-  const steps = Math.max(2, Math.min(200, Math.floor(fadeW)));
-  ctx.beginPath();
-  if (side === "in") {
-    ctx.moveTo(x0, top + laneH);
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      ctx.lineTo(x0 + t * fadeW, top + laneH - fadeGain(curve, t) * laneH);
-    }
-    ctx.lineTo(x0, top);
-  } else {
-    const xr = x0 + w;
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      ctx.lineTo(
-        xr - fadeW + t * fadeW,
-        top + laneH - fadeGain(curve, 1 - t) * laneH,
-      );
-    }
-    ctx.lineTo(xr, top + laneH);
-    ctx.lineTo(xr, top);
-    ctx.lineTo(xr - fadeW, top);
-  }
-  ctx.closePath();
-  ctx.fillStyle = th.fadeFill; // darken the attenuated region
-  ctx.fill();
-  ctx.strokeStyle = th.snap;
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-}
-
-function fmtTime(t: number, step: number): string {
-  const m = Math.floor(t / 60);
-  const s = t - m * 60;
-  const dp = step < 1 ? 2 : 0;
-  return m > 0
-    ? `${m}:${s.toFixed(dp).padStart(dp ? 5 : 2, "0")}`
-    : `${s.toFixed(dp)}s`;
-}
-
-function findClip(project: ProjectView, id: string): ClipView | undefined {
-  for (const t of project.tracks) {
-    const c = t.clips.find((c) => c.id === id);
-    if (c) return c;
-  }
-  return undefined;
-}
-
-function laneTopForY(y: number, project: ProjectView | null): number | null {
-  if (!project) return null;
-  const ti = Math.floor((y - RULER_HEIGHT) / TRACK_HEIGHT);
-  if (ti < 0 || ti >= project.tracks.length) return null;
-  return RULER_HEIGHT + ti * TRACK_HEIGHT + 4;
-}
-
-function drawClipWave(
-  ctx: CanvasRenderingContext2D,
-  pyramid: PeakPyramid,
-  clip: ClipView,
-  x0: number,
-  top: number,
-  w: number,
-  laneH: number,
-  pps: number,
-  sr: number,
-  selected: boolean,
-  viewWidth: number,
-  th: CanvasTheme,
-) {
-  const framesPerPixel = sr / pps;
-  const level: PeakLevel | null = pickLevel(pyramid, framesPerPixel);
-  if (!level) return;
-  const srcCh = level.channels;
-  // If a single channel was split out, draw only that channel full-height.
-  const only = clip.source_channel;
-  const drawChannels =
-    only == null ? Array.from({ length: srcCh }, (_, i) => i) : [only];
-  const perChanH = laneH / drawChannels.length;
-
-  ctx.fillStyle = selected ? th.waveSel : th.wave;
-  const pxStart = Math.max(0, Math.floor(x0));
-  const pxEnd = Math.min(viewWidth, Math.ceil(x0 + w));
-
-  for (let px = pxStart; px < pxEnd; px++) {
-    // Source frame at this pixel = clip source_in + offset into the clip.
-    const clipFrame = (px - x0) * framesPerPixel;
-    const srcFrame = clip.source_in + clipFrame;
-    if (srcFrame < clip.source_in || srcFrame >= clip.source_out) continue;
-    const b0 = Math.floor(srcFrame / level.framesPerBucket);
-    const b1 = Math.max(
-      b0,
-      Math.floor((srcFrame + framesPerPixel) / level.framesPerBucket),
-    );
-
-    drawChannels.forEach((c, laneIdx) => {
-      let lo = Infinity;
-      let hi = -Infinity;
-      for (let b = b0; b <= b1 && b < level.numBuckets; b++) {
-        lo = Math.min(lo, level.mins[b * srcCh + c]);
-        hi = Math.max(hi, level.maxs[b * srcCh + c]);
-      }
-      if (!isFinite(lo)) return;
-      const mid = top + laneIdx * perChanH + perChanH / 2;
-      const y1 = mid - hi * (perChanH / 2) * 0.95;
-      const y2 = mid - lo * (perChanH / 2) * 0.95;
-      ctx.fillRect(px, Math.min(y1, y2), 1, Math.max(1, Math.abs(y2 - y1)));
-    });
-  }
 }

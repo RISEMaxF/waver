@@ -53,8 +53,21 @@ function App() {
 
       <FileBar project={project.project} onChanged={project.refresh} />
 
-      {audio.notice && <p className="notice">{audio.notice}</p>}
-      {audio.error && <p className="error-banner">{audio.error}</p>}
+      {audio.notice && (
+        <p className="notice" role="status" aria-live="polite">
+          {audio.notice}
+        </p>
+      )}
+      {audio.error && (
+        <p className="error-banner" role="alert">
+          {audio.error}
+        </p>
+      )}
+      {project.error && (
+        <p className="error-banner" role="alert">
+          {project.error}
+        </p>
+      )}
 
       <section className="panel">
         <h2>Input &amp; monitoring</h2>

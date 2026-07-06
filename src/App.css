@@ -212,14 +212,16 @@ body {
   width: 22px;
   height: 200px;
   border-radius: 5px;
+  /* Green/amber/red zones derived from the theme state tokens, so the meter
+     background follows the theme instead of using frozen hex. */
   background: linear-gradient(
     to top,
-    #14361f 0%,
-    #14361f 70%,
-    #3a3416 70%,
-    #3a3416 90%,
-    #3a1616 90%,
-    #3a1616 100%
+    color-mix(in srgb, var(--ok) 22%, var(--panel)) 0%,
+    color-mix(in srgb, var(--ok) 22%, var(--panel)) 70%,
+    color-mix(in srgb, var(--warn) 22%, var(--panel)) 70%,
+    color-mix(in srgb, var(--warn) 22%, var(--panel)) 90%,
+    color-mix(in srgb, var(--err) 22%, var(--panel)) 90%,
+    color-mix(in srgb, var(--err) 22%, var(--panel)) 100%
   );
   border: 1px solid var(--edge);
   overflow: hidden;
