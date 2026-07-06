@@ -32,6 +32,7 @@ export interface SourceView {
   channels: number;
   sample_rate: number;
   frames: number;
+  path: string;
 }
 
 export interface ProjectView {

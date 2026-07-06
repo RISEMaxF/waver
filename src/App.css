@@ -164,6 +164,16 @@ body {
   color: var(--color-text-muted);
 }
 
+.filebar-project {
+  font-size: var(--font-size-xs);
+  color: var(--color-text);
+  font-weight: 600;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ==================== Audio controls (device + meter + record) ==================== */
 .audio-controls {
   margin-left: auto;
@@ -475,6 +485,111 @@ body {
   width: 2px;
   height: 100%;
   transition: left 60ms linear;
+}
+
+/* ==================== Media pool (scratchpad) ==================== */
+.media-pool {
+  flex-shrink: 0;
+  width: 200px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-panel);
+  overflow: hidden;
+}
+
+.media-pool.collapsed {
+  width: auto;
+  padding: var(--space-2);
+}
+
+.pool-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.pool-title {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+}
+
+.pool-actions {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.pool-actions button,
+.pool-toggle {
+  padding: 0.2rem 0.45rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+
+.pool-actions button:hover,
+.pool-toggle:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.pool-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pool-empty {
+  margin: 0;
+  padding: var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+.pool-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  cursor: grab;
+}
+
+.pool-item:hover {
+  border-color: var(--color-accent);
+}
+
+.pool-item:active {
+  cursor: grabbing;
+}
+
+.pool-item-name {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pool-item-meta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ==================== Waveform timeline ==================== */

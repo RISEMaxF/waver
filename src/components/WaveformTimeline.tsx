@@ -643,6 +643,68 @@ export function WaveformTimeline({
     }
   };
 
+  // ---- Drag a media-pool source onto a track ----
+  const onCanvasDragOver = (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes("application/x-waver-source")) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    }
+  };
+
+  const onCanvasDrop = (e: React.DragEvent) => {
+    const sourceId = e.dataTransfer.getData("application/x-waver-source");
+    if (!sourceId || !project) return;
+    e.preventDefault();
+    const src = project.sources.find((s) => s.id === sourceId);
+    if (!src) return;
+    if (project.tracks.length === 0) {
+      api.addTrack(); // empty timeline — make a track first, then drag again
+      return;
+    }
+    const el = canvasRef.current ?? wrapRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const ti = Math.floor((y - RULER_HEIGHT) / TRACK_HEIGHT);
+    const track =
+      project.tracks[ti] ?? project.tracks[project.tracks.length - 1];
+    if (!track) {
+      api.addTrack(); // no track yet — create one, then drag again
+      return;
+    }
+    // Place at the drop point, or after the track's clips if that would overlap.
+    const wanted = Math.round(Math.max(0, xToSec(x)) * sr);
+    const len = src.frames;
+    const overlaps = track.clips.some(
+      (c) =>
+        wanted < c.timeline_start + (c.source_out - c.source_in) &&
+        c.timeline_start < wanted + len,
+    );
+    const start = overlaps
+      ? track.clips.reduce(
+          (m, c) =>
+            Math.max(m, c.timeline_start + (c.source_out - c.source_in)),
+          0,
+        )
+      : wanted;
+    api.paste(
+      {
+        source_id: src.id,
+        source_channel: null,
+        source_in: 0,
+        source_out: src.frames,
+        timeline_start: start,
+        gain_db: 0,
+        fade_in_len: 0,
+        fade_in_curve: "linear",
+        fade_out_len: 0,
+        fade_out_curve: "linear",
+      },
+      track.id,
+    );
+  };
+
   const onWheel = (e: React.WheelEvent) => {
     if (e.ctrlKey || e.metaKey) {
       const rect = canvasRef.current!.getBoundingClientRect();
@@ -911,10 +973,16 @@ export function WaveformTimeline({
           armedTrackId={armedTrackId}
           onToggleArm={toggleArm}
         />
-        <div className="wave-canvas-wrap" ref={wrapRef}>
+        <div
+          className="wave-canvas-wrap"
+          ref={wrapRef}
+          onDragOver={onCanvasDragOver}
+          onDrop={onCanvasDrop}
+        >
           {!project || project.tracks.length === 0 ? (
             <p className="wave-empty">
-              Record or import audio to start your timeline.
+              Record, import, or drag a file from the pool to start your
+              timeline.
             </p>
           ) : (
             <canvas

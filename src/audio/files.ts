@@ -17,6 +17,25 @@ export async function importAudioDialog(): Promise<RecordingResult | null> {
   return invoke<RecordingResult>("import_audio", { path });
 }
 
+/** Import one or more audio files into the media pool (no timeline placement).
+ *  Returns how many were imported. */
+export async function importToPoolDialog(): Promise<number> {
+  const picked = await open({
+    multiple: true,
+    filters: [{ name: "Audio", extensions: AUDIO_EXTS }],
+  });
+  if (!picked) return 0;
+  const paths = Array.isArray(picked) ? picked : [picked];
+  let n = 0;
+  for (const p of paths) {
+    if (typeof p === "string") {
+      await invoke("import_to_pool", { path: p });
+      n++;
+    }
+  }
+  return n;
+}
+
 export type ExportFormat = "wav" | "flac" | "ogg";
 export type ExportBitDepth = "int16" | "int24" | "float32";
 
@@ -45,7 +64,7 @@ export async function exportProjectDialog(
   return path;
 }
 
-/** FR-8.1 — save the project. */
+/** FR-8.1 — save the project, prompting for a destination (Save As). */
 export async function saveProjectDialog(): Promise<string | null> {
   const path = await save({
     defaultPath: "project.wvproj",
@@ -56,9 +75,16 @@ export async function saveProjectDialog(): Promise<string | null> {
   return path;
 }
 
+/** Save to a known path without prompting (plain Save). */
+export async function saveProjectToPath(path: string): Promise<void> {
+  await invoke("save_project", { path });
+}
+
 export interface LoadResult {
   project: ProjectView;
   missing_sources: string[];
+  /** The file the project was loaded from. */
+  path: string;
 }
 
 /** FR-8.1 — open a saved project. */
@@ -68,5 +94,11 @@ export async function loadProjectDialog(): Promise<LoadResult | null> {
     filters: [{ name: "Waver project", extensions: ["wvproj", "json"] }],
   });
   if (typeof path !== "string") return null;
-  return invoke<LoadResult>("load_project", { path });
+  const r = await invoke<Omit<LoadResult, "path">>("load_project", { path });
+  return { ...r, path };
+}
+
+/** Start a fresh, empty project. */
+export async function newProject(): Promise<ProjectView> {
+  return invoke<ProjectView>("new_project");
 }

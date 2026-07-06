@@ -3,7 +3,9 @@ import {
   exportProjectDialog,
   importAudioDialog,
   loadProjectDialog,
+  newProject,
   saveProjectDialog,
+  saveProjectToPath,
   type ExportBitDepth,
   type ExportFormat,
 } from "../audio/files";
@@ -14,12 +16,15 @@ interface Props {
   onChanged: () => void; // refresh the project view
 }
 
+const basename = (p: string) => p.split(/[\\/]/).pop() ?? p;
+
 export function FileBar({ project, onChanged }: Props) {
   const [format, setFormat] = useState<ExportFormat>("wav");
   const [bitDepth, setBitDepth] = useState<ExportBitDepth>("int24");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [dark, setDark] = useState(true);
+  const [projectPath, setProjectPath] = useState<string | null>(null);
 
   // Theme toggle: set data-theme on <html>; the tokens + canvas follow it.
   useEffect(() => {
@@ -63,34 +68,82 @@ export function FileBar({ project, onChanged }: Props) {
         <button
           type="button"
           disabled={busy}
+          title="Start a new empty project"
           onClick={() =>
-            run("Open", async () => {
-              const r = await loadProjectDialog();
-              if (r) {
-                onChanged();
-                setMsg(
-                  r.missing_sources.length
-                    ? `Opened project — ${r.missing_sources.length} source file(s) missing`
-                    : "Project opened",
-                );
-              }
+            run("New", async () => {
+              await newProject();
+              setProjectPath(null);
+              onChanged();
+              setMsg("New project");
             })
           }
         >
-          📂 Open project
+          🆕 New
         </button>
         <button
           type="button"
           disabled={busy}
           onClick={() =>
-            run("Save", async () => {
-              const p = await saveProjectDialog();
-              if (p) setMsg("Project saved");
+            run("Open", async () => {
+              const r = await loadProjectDialog();
+              if (r) {
+                setProjectPath(r.path);
+                onChanged();
+                setMsg(
+                  r.missing_sources.length
+                    ? `Opened ${basename(r.path)} — ${r.missing_sources.length} source file(s) missing`
+                    : `Opened ${basename(r.path)}`,
+                );
+              }
             })
           }
         >
-          💾 Save project
+          📂 Open
         </button>
+        <button
+          type="button"
+          disabled={busy}
+          title={
+            projectPath ? `Save to ${basename(projectPath)}` : "Save project"
+          }
+          onClick={() =>
+            run("Save", async () => {
+              if (projectPath) {
+                await saveProjectToPath(projectPath);
+                setMsg(`Saved ${basename(projectPath)}`);
+              } else {
+                const p = await saveProjectDialog();
+                if (p) {
+                  setProjectPath(p);
+                  setMsg(`Saved ${basename(p)}`);
+                }
+              }
+            })
+          }
+        >
+          💾 Save
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          title="Save to a new file"
+          onClick={() =>
+            run("Save As", async () => {
+              const p = await saveProjectDialog();
+              if (p) {
+                setProjectPath(p);
+                setMsg(`Saved ${basename(p)}`);
+              }
+            })
+          }
+        >
+          Save As…
+        </button>
+        {projectPath && (
+          <span className="filebar-project" title={projectPath}>
+            {basename(projectPath)}
+          </span>
+        )}
       </div>
 
       <div className="filebar-group export">

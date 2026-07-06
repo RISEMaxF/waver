@@ -176,6 +176,8 @@ pub struct SourceView {
     pub channels: u16,
     pub sample_rate: u32,
     pub frames: u64,
+    /// Absolute source file path (for the media pool to show a name).
+    pub path: String,
 }
 
 impl ProjectView {
@@ -220,6 +222,7 @@ impl ProjectView {
                     channels: s.channels,
                     sample_rate: s.sample_rate,
                     frames: s.frames,
+                    path: s.path.to_string_lossy().to_string(),
                 })
                 .collect(),
         }
@@ -784,6 +787,49 @@ pub fn import_audio(
     })
 }
 
+/// Import an audio file into the media pool (scratchpad) WITHOUT placing it on the
+/// timeline. The source can then be dragged onto a track. Returns the updated project.
+#[tauri::command]
+pub fn import_to_pool(
+    app: AppHandle,
+    state: State<'_, AudioState>,
+    path: String,
+) -> Result<ProjectView, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("imported");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    let project_rate = {
+        let guard = state.edit.lock().expect("edit mutex poisoned");
+        guard.project.sample_rate
+    };
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let stem = std::path::Path::new(&path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("import");
+    let scratch = dir.join(format!("{stem}-{stamp}.wav"));
+
+    let info =
+        waver_engine::import_file(&path, project_rate, &scratch).map_err(|e| e.to_string())?;
+    if info.frames == 0 {
+        return Err("imported file has no audio".into());
+    }
+
+    let source = Source::new(info.path, info.channels, info.sample_rate, info.frames);
+    let mut guard = state.edit.lock().expect("edit mutex poisoned");
+    let st = &mut *guard;
+    st.history.snapshot(&st.project);
+    st.project.sources.push(source);
+    Ok(ProjectView::of(&st.project, &st.history))
+}
+
 /// FR-7.2/7.3 — export/mixdown the project to a file.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExportRequest {
@@ -817,6 +863,16 @@ pub fn export_project(state: State<'_, AudioState>, req: ExportRequest) -> Resul
         guard.project.clone()
     };
     waver_engine::export_project(&project, opts, &req.path).map_err(|e| e.to_string())
+}
+
+/// Reset to a fresh, empty project (keeping the current sample rate).
+#[tauri::command]
+pub fn new_project(state: State<'_, AudioState>) -> ProjectView {
+    let mut guard = state.edit.lock().expect("edit mutex poisoned");
+    let sr = guard.project.sample_rate;
+    guard.project = Project::new(sr);
+    guard.history = History::default();
+    ProjectView::of(&guard.project, &guard.history)
 }
 
 /// FR-8.1 — save the project (JSON referencing source paths) to `path`.

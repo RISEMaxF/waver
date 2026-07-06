@@ -4,6 +4,7 @@ import { useAudio } from "./audio/useAudio";
 import { useProject } from "./audio/useProject";
 import { AudioControls } from "./components/AudioControls";
 import { FileBar } from "./components/FileBar";
+import { MediaPool } from "./components/MediaPool";
 import { WaveformTimeline } from "./components/WaveformTimeline";
 import "./App.css";
 
@@ -14,6 +15,7 @@ interface AppInfo {
 
 function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
+  const [poolMsg, setPoolMsg] = useState<string | null>(null);
   const audio = useAudio();
   const project = useProject();
 
@@ -54,7 +56,7 @@ function App() {
         <AudioControls audio={audio} onToggleRecord={onToggleRecord} />
       </header>
 
-      {(audio.notice || audio.error || project.error) && (
+      {(audio.notice || audio.error || project.error || poolMsg) && (
         <div className="banners">
           {audio.notice && (
             <p className="notice" role="status" aria-live="polite">
@@ -71,10 +73,24 @@ function App() {
               {project.error}
             </p>
           )}
+          {poolMsg && (
+            <p
+              className="error-banner"
+              role="alert"
+              onClick={() => setPoolMsg(null)}
+            >
+              {poolMsg}
+            </p>
+          )}
         </div>
       )}
 
       <main className="stage">
+        <MediaPool
+          project={project.project}
+          onChanged={project.refresh}
+          onError={setPoolMsg}
+        />
         <WaveformTimeline
           project={project.project}
           api={project}

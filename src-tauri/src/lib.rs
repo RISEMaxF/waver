@@ -64,6 +64,8 @@ pub fn run() {
             commands::playback_status,
             commands::import_audio,
             commands::export_project,
+            commands::new_project,
+            commands::import_to_pool,
             commands::save_project,
             commands::load_project,
             commands::undo,
