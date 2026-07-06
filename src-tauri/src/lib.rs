@@ -49,6 +49,8 @@ pub fn run() {
             commands::split_clip_channels,
             commands::set_clip_gain,
             commands::set_track_gain,
+            commands::set_track_muted,
+            commands::set_track_soloed,
             commands::set_clip_fade_in,
             commands::set_clip_fade_out,
             commands::play,

@@ -40,6 +40,8 @@ export function useProject() {
     splitChannels: (id: string) => run(api.splitClipChannels(id)),
     setClipGain: (id: string, g: number) => run(api.setClipGain(id, g)),
     setTrackGain: (id: string, g: number) => run(api.setTrackGain(id, g)),
+    setTrackMuted: (id: string, m: boolean) => run(api.setTrackMuted(id, m)),
+    setTrackSoloed: (id: string, s: boolean) => run(api.setTrackSoloed(id, s)),
     setFadeIn: (id: string, len: number, curve: api.FadeCurve) =>
       run(api.setClipFadeIn(id, len, curve)),
     setFadeOut: (id: string, len: number, curve: api.FadeCurve) =>

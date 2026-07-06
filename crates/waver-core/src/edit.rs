@@ -211,13 +211,27 @@ impl Project {
 
     /// Set a track's gain in dB (spec FR-5.2).
     pub fn set_track_gain(&mut self, track_id: Uuid, gain_db: f32) -> Result<(), EditError> {
-        let track = self
-            .tracks
+        self.track_mut(track_id)?.gain_db = gain_db;
+        Ok(())
+    }
+
+    /// Mute or unmute a track (spec FR-6.1).
+    pub fn set_track_muted(&mut self, track_id: Uuid, muted: bool) -> Result<(), EditError> {
+        self.track_mut(track_id)?.muted = muted;
+        Ok(())
+    }
+
+    /// Solo or unsolo a track (spec FR-6.1).
+    pub fn set_track_soloed(&mut self, track_id: Uuid, soloed: bool) -> Result<(), EditError> {
+        self.track_mut(track_id)?.soloed = soloed;
+        Ok(())
+    }
+
+    fn track_mut(&mut self, track_id: Uuid) -> Result<&mut Track, EditError> {
+        self.tracks
             .iter_mut()
             .find(|t| t.id == track_id)
-            .ok_or(EditError::TrackNotFound(track_id))?;
-        track.gain_db = gain_db;
-        Ok(())
+            .ok_or(EditError::TrackNotFound(track_id))
     }
 
     /// Set a clip's fade-in (spec FR-5.1). Length is clamped to the clip length.

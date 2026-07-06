@@ -59,6 +59,10 @@ export const setClipGain = (clipId: string, gainDb: number) =>
   invoke<ProjectView>("set_clip_gain", { clipId, gainDb });
 export const setTrackGain = (trackId: string, gainDb: number) =>
   invoke<ProjectView>("set_track_gain", { trackId, gainDb });
+export const setTrackMuted = (trackId: string, muted: boolean) =>
+  invoke<ProjectView>("set_track_muted", { trackId, muted });
+export const setTrackSoloed = (trackId: string, soloed: boolean) =>
+  invoke<ProjectView>("set_track_soloed", { trackId, soloed });
 export const setClipFadeIn = (
   clipId: string,
   lenFrames: number,

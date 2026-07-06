@@ -10,6 +10,7 @@ import type { ProjectApi } from "../audio/useProject";
 import { useTransport } from "../audio/useTransport";
 import { fetchPeaks, type PeakPyramid } from "../audio/peaks";
 import { Inspector } from "./timeline/Inspector";
+import { TrackHeaders } from "./timeline/TrackHeaders";
 import {
   drawClipWave,
   drawFade,
@@ -673,28 +674,31 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
           {pps.toFixed(0)} px/s · {playheadSec.toFixed(2)}s
         </span>
       </div>
-      <div className="wave-canvas-wrap" ref={wrapRef}>
-        {!project || project.tracks.length === 0 ? (
-          <p className="wave-empty">
-            Record a take to start building your timeline.
-          </p>
-        ) : (
-          <canvas
-            ref={canvasRef}
-            role="application"
-            aria-label="Timeline editor"
-            style={{
-              width: "100%",
-              cursor: drag.current ? "grabbing" : cursor,
-            }}
-            onMouseDown={onMouseDown}
-            onMouseMove={onMouseMove}
-            onMouseUp={onMouseUp}
-            onMouseLeave={onMouseUp}
-            onDoubleClick={onDoubleClick}
-            onWheel={onWheel}
-          />
-        )}
+      <div className="wave-body">
+        <TrackHeaders project={project} api={api} />
+        <div className="wave-canvas-wrap" ref={wrapRef}>
+          {!project || project.tracks.length === 0 ? (
+            <p className="wave-empty">
+              Record or import audio to start your timeline.
+            </p>
+          ) : (
+            <canvas
+              ref={canvasRef}
+              role="application"
+              aria-label="Timeline editor"
+              style={{
+                width: "100%",
+                cursor: drag.current ? "grabbing" : cursor,
+              }}
+              onMouseDown={onMouseDown}
+              onMouseMove={onMouseMove}
+              onMouseUp={onMouseUp}
+              onMouseLeave={onMouseUp}
+              onDoubleClick={onDoubleClick}
+              onWheel={onWheel}
+            />
+          )}
+        </div>
       </div>
       <Inspector project={project} selected={selected} api={api} sr={sr} />
     </div>

@@ -135,6 +135,20 @@ more reliable. `Info.plist` already carries `NSMicrophoneUsageDescription`.
 
 ---
 
+## UI (P2 layout) — visual check
+
+- ⬜ **Fixed DAW window layout.** The app is now a single fixed window (no page scroll):
+  top bar (Waver / file ops / theme · device+meter+record on the right) → timeline that
+  fills the space → bottom inspector. Only the track area scrolls (vertically) when there
+  are more tracks than fit. Confirm nothing double-scrolls or clips.
+- ⬜ **Per-track headers** (left gutter): name, **M**ute / **S**olo toggles, and a gain
+  slider, aligned to each lane. Confirm Mute/Solo affect playback (mixer honors them) and
+  the lane dims when muted/not-soloed.
+- ⬜ **Meter**: compact horizontal meter in the top bar with a **latching clip indicator**
+  and **peak-hold** tick — click it to reset. Confirm it lights red on overs and holds.
+- ⬜ **Audio settings popover**: the ⚙ button opens input/output/rate/buffer; closes on
+  outside click.
+
 ## Known follow-ups (from the M7/M8 review — not blocking)
 
 - **Streaming import/export.** Import decode and export mixdown currently buffer the

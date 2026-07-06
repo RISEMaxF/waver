@@ -758,6 +758,28 @@ pub fn load_project(state: State<'_, AudioState>, path: String) -> Result<LoadRe
     })
 }
 
+/// FR-6.1 — mute/unmute a track.
+#[tauri::command]
+pub fn set_track_muted(
+    state: State<'_, AudioState>,
+    track_id: String,
+    muted: bool,
+) -> Result<ProjectView, String> {
+    let id = parse_id(&track_id)?;
+    apply_edit(&state, |p| p.set_track_muted(id, muted))
+}
+
+/// FR-6.1 — solo/unsolo a track.
+#[tauri::command]
+pub fn set_track_soloed(
+    state: State<'_, AudioState>,
+    track_id: String,
+    soloed: bool,
+) -> Result<ProjectView, String> {
+    let id = parse_id(&track_id)?;
+    apply_edit(&state, |p| p.set_track_soloed(id, soloed))
+}
+
 /// FR-4.7 — undo the last edit.
 #[tauri::command]
 pub fn undo(state: State<'_, AudioState>) -> ProjectView {
