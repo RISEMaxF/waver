@@ -244,6 +244,12 @@ impl Project {
         Ok(())
     }
 
+    /// Rename a track.
+    pub fn set_track_name(&mut self, track_id: Uuid, name: String) -> Result<(), EditError> {
+        self.track_mut(track_id)?.name = name;
+        Ok(())
+    }
+
     /// Set a track's identity color (hex), or `None` to revert to the auto color.
     pub fn set_track_color(
         &mut self,

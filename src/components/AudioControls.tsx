@@ -63,6 +63,7 @@ export function AudioControls({
               onSelectRate={audio.selectRate}
               onSelectBuffer={audio.selectBuffer}
               onRefresh={audio.refresh}
+              disabled={audio.recording}
             />
           </div>
         )}

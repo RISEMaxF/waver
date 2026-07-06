@@ -111,9 +111,10 @@ export function TrackHeaders({
             </div>
             <div className="track-head-main">
               <div className="track-head-top">
-                <span className="track-name" title={t.name}>
-                  {t.name}
-                </span>
+                <TrackName
+                  name={t.name}
+                  onRename={(n) => api.setTrackName(t.id, n)}
+                />
                 <button
                   type="button"
                   className="track-remove"
@@ -170,10 +171,85 @@ export function TrackHeaders({
                   {t.gain_db.toFixed(0)} dB
                 </span>
               </div>
+              <div className="track-meta" title={trackDetail(t, project)}>
+                {trackDetail(t, project)}
+              </div>
             </div>
           </div>
         );
       })}
     </div>
   );
+}
+
+/** Track name: double-click to edit inline, commit on blur / Enter (F8). */
+function TrackName({
+  name,
+  onRename,
+}: {
+  name: string;
+  onRename: (n: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+  if (editing) {
+    return (
+      <input
+        className="track-name-input"
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          const v = draft.trim();
+          if (v && v !== name) onRename(v);
+          setEditing(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            setDraft(name);
+            setEditing(false);
+          }
+        }}
+      />
+    );
+  }
+  return (
+    <span
+      className="track-name"
+      title="Double-click to rename"
+      onDoubleClick={() => {
+        setDraft(name);
+        setEditing(true);
+      }}
+    >
+      {name}
+    </span>
+  );
+}
+
+function oneCh(c: number): string {
+  return c === 1 ? "Mono" : c === 2 ? "Stereo" : `${c}ch`;
+}
+
+/** Track detail line: channel format · sample rate · clip count, from the track's
+ *  clips' sources (F10). */
+function trackDetail(
+  t: ProjectView["tracks"][number],
+  project: ProjectView | null,
+): string {
+  const n = t.clips.length;
+  if (n === 0) return "Empty track";
+  const sources = project?.sources ?? [];
+  const used = t.clips
+    .map((c) => sources.find((s) => s.id === c.source_id))
+    .filter((s): s is ProjectView["sources"][number] => !!s);
+  const plural = n === 1 ? "" : "s";
+  if (used.length === 0) return `${n} clip${plural}`;
+  const chans = new Set(used.map((s) => s.channels));
+  const rates = new Set(used.map((s) => s.sample_rate));
+  const ch = chans.size > 1 ? "Mixed" : oneCh([...chans][0]);
+  const rate =
+    rates.size > 1 ? "mixed rate" : `${([...rates][0] / 1000).toFixed(1)} kHz`;
+  return `${ch} · ${rate} · ${n} clip${plural}`;
 }

@@ -66,6 +66,8 @@ export const setTrackMuted = (trackId: string, muted: boolean) =>
   invoke<ProjectView>("set_track_muted", { trackId, muted });
 export const setTrackSoloed = (trackId: string, soloed: boolean) =>
   invoke<ProjectView>("set_track_soloed", { trackId, soloed });
+export const setTrackName = (trackId: string, name: string) =>
+  invoke<ProjectView>("set_track_name", { trackId, name });
 export const setTrackColor = (trackId: string, color: string | null) =>
   invoke<ProjectView>("set_track_color", { trackId, color });
 export const addTrack = () => invoke<ProjectView>("add_track");

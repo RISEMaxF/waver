@@ -40,6 +40,7 @@ function App() {
   useEffect(() => {
     if (audio.takes.length !== takeCount.current) {
       takeCount.current = audio.takes.length;
+      project.markDirty();
       project.refresh();
     }
   }, [audio.takes, project]);
@@ -67,7 +68,13 @@ function App() {
             <span className="brand-name">Waver</span>
             {info && <span className="brand-ver">v{info.version}</span>}
           </div>
-          <FileBar project={project.project} onChanged={project.refresh} />
+          <FileBar
+            project={project.project}
+            onChanged={project.refresh}
+            dirty={project.dirty}
+            markDirty={project.markDirty}
+            markClean={project.markClean}
+          />
         </div>
         <AudioControls audio={audio} onToggleRecord={onToggleRecord} />
       </header>
@@ -104,7 +111,10 @@ function App() {
       <main className="stage">
         <MediaPool
           project={project.project}
-          onChanged={project.refresh}
+          onChanged={() => {
+            project.markDirty();
+            project.refresh();
+          }}
           onError={setPoolMsg}
         />
         <WaveformTimeline

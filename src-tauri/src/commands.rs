@@ -284,6 +284,17 @@ pub fn close_input(state: State<'_, AudioState>) -> Result<(), String> {
     Ok(())
 }
 
+/// Rename a track (undoable).
+#[tauri::command]
+pub fn set_track_name(
+    state: State<'_, AudioState>,
+    track_id: String,
+    name: String,
+) -> Result<ProjectView, String> {
+    let id = parse_id(&track_id)?;
+    apply_edit(&state, |p| p.set_track_name(id, name.clone()))
+}
+
 /// Set a track's identity color (hex), or `null` to revert to the auto color.
 #[tauri::command]
 pub fn set_track_color(

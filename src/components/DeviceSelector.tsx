@@ -13,6 +13,8 @@ interface Props {
   onSelectRate: (rate: number) => void;
   onSelectBuffer: (frames: number | null) => void;
   onRefresh: () => void;
+  /** Lock all device controls (e.g. while recording — changing them aborts the take). */
+  disabled?: boolean;
 }
 
 function deviceLabel(d: DeviceInfo): string {
@@ -24,9 +26,15 @@ export function DeviceSelector(props: Props) {
   const selectedInput =
     props.inputs.find((d) => d.id === props.selectedInputId) ?? null;
   const rates = selectedInput?.sample_rates ?? [];
+  const dis = props.disabled;
 
   return (
     <div className="devsel">
+      {dis && (
+        <p className="devsel-locked">
+          Locked while recording — stop to change devices.
+        </p>
+      )}
       <section className="devsel-section">
         <h3 className="devsel-heading">Input</h3>
         <div className="devsel-row">
@@ -34,6 +42,7 @@ export function DeviceSelector(props: Props) {
           <select
             id="input-device"
             value={props.selectedInputId ?? ""}
+            disabled={dis}
             onChange={(e) => props.onSelectInput(e.target.value)}
           >
             {props.inputs.length === 0 && (
@@ -52,7 +61,7 @@ export function DeviceSelector(props: Props) {
             <select
               id="sample-rate"
               value={props.sampleRate ?? ""}
-              disabled={rates.length === 0}
+              disabled={dis || rates.length === 0}
               onChange={(e) => props.onSelectRate(Number(e.target.value))}
             >
               {rates.map((r) => (
@@ -67,6 +76,7 @@ export function DeviceSelector(props: Props) {
             <select
               id="buffer-size"
               value={props.bufferFrames ?? ""}
+              disabled={dis}
               onChange={(e) =>
                 props.onSelectBuffer(
                   e.target.value === "" ? null : Number(e.target.value),
@@ -91,6 +101,7 @@ export function DeviceSelector(props: Props) {
           <select
             id="output-device"
             value={props.selectedOutputId ?? ""}
+            disabled={dis}
             onChange={(e) => props.onSelectOutput(e.target.value)}
           >
             {props.outputs.length === 0 && (
@@ -105,7 +116,12 @@ export function DeviceSelector(props: Props) {
         </div>
       </section>
 
-      <button className="tbtn" onClick={props.onRefresh} type="button">
+      <button
+        className="tbtn"
+        onClick={props.onRefresh}
+        type="button"
+        disabled={dis}
+      >
         <IconRefresh />
         <span>Rescan devices</span>
       </button>

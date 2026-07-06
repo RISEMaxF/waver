@@ -5,6 +5,8 @@ import type { ProjectView } from "./project";
 export function useProject() {
   const [project, setProject] = useState<ProjectView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Unsaved-changes flag: any edit sets it; save/open/new clear it (F1/F32).
+  const [dirty, setDirty] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -21,6 +23,7 @@ export function useProject() {
   const run = useCallback(async (p: Promise<ProjectView>) => {
     try {
       setProject(await p);
+      setDirty(true);
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -31,6 +34,9 @@ export function useProject() {
     project,
     error,
     refresh,
+    dirty,
+    markDirty: useCallback(() => setDirty(true), []),
+    markClean: useCallback(() => setDirty(false), []),
     split: (id: string, frame: number) => run(api.splitClip(id, frame)),
     trimEnd: (id: string, frame: number) => run(api.trimClipEnd(id, frame)),
     trimStart: (id: string, frame: number) => run(api.trimClipStart(id, frame)),
@@ -42,6 +48,7 @@ export function useProject() {
     setTrackGain: (id: string, g: number) => run(api.setTrackGain(id, g)),
     setTrackMuted: (id: string, m: boolean) => run(api.setTrackMuted(id, m)),
     setTrackSoloed: (id: string, s: boolean) => run(api.setTrackSoloed(id, s)),
+    setTrackName: (id: string, n: string) => run(api.setTrackName(id, n)),
     setTrackColor: (id: string, c: string | null) =>
       run(api.setTrackColor(id, c)),
     addTrack: () => run(api.addTrack()),

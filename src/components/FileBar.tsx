@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ask } from "@tauri-apps/plugin-dialog";
 import {
   exportProjectDialog,
   importAudioDialog,
@@ -24,11 +25,29 @@ import {
 interface Props {
   project: ProjectView | null;
   onChanged: () => void; // refresh the project view
+  dirty: boolean;
+  markDirty: () => void;
+  markClean: () => void;
+}
+
+/** Confirm discarding unsaved changes before a destructive project switch (F1). */
+async function okToDiscard(dirty: boolean, action: string): Promise<boolean> {
+  if (!dirty) return true;
+  return ask(`You have unsaved changes. Discard them and ${action}?`, {
+    title: "Unsaved changes",
+    kind: "warning",
+  });
 }
 
 const basename = (p: string) => p.split(/[\\/]/).pop() ?? p;
 
-export function FileBar({ project, onChanged }: Props) {
+export function FileBar({
+  project,
+  onChanged,
+  dirty,
+  markDirty,
+  markClean,
+}: Props) {
   const [format, setFormat] = useState<ExportFormat>("wav");
   const [bitDepth, setBitDepth] = useState<ExportBitDepth>("int24");
   const [busy, setBusy] = useState(false);
@@ -67,8 +86,10 @@ export function FileBar({ project, onChanged }: Props) {
           title="Start a new empty project"
           onClick={() =>
             run("New", async () => {
+              if (!(await okToDiscard(dirty, "start a new project"))) return;
               await newProject();
               setProjectPath(null);
+              markClean();
               onChanged();
               setMsg("New project");
             })
@@ -83,9 +104,11 @@ export function FileBar({ project, onChanged }: Props) {
           disabled={busy}
           onClick={() =>
             run("Open", async () => {
+              if (!(await okToDiscard(dirty, "open another project"))) return;
               const r = await loadProjectDialog();
               if (r) {
                 setProjectPath(r.path);
+                markClean();
                 onChanged();
                 setMsg(
                   r.missing_sources.length
@@ -110,11 +133,13 @@ export function FileBar({ project, onChanged }: Props) {
             run("Save", async () => {
               if (projectPath) {
                 await saveProjectToPath(projectPath);
+                markClean();
                 setMsg(`Saved ${basename(projectPath)}`);
               } else {
                 const p = await saveProjectDialog();
                 if (p) {
                   setProjectPath(p);
+                  markClean();
                   setMsg(`Saved ${basename(p)}`);
                 }
               }
@@ -134,6 +159,7 @@ export function FileBar({ project, onChanged }: Props) {
               const p = await saveProjectDialog();
               if (p) {
                 setProjectPath(p);
+                markClean();
                 setMsg(`Saved ${basename(p)}`);
               }
             })
@@ -142,11 +168,21 @@ export function FileBar({ project, onChanged }: Props) {
           <IconSaveAs />
           <span>Save As</span>
         </button>
-        {projectPath && (
-          <span className="filebar-project" title={projectPath}>
-            {basename(projectPath)}
-          </span>
-        )}
+        <span
+          className="filebar-project"
+          title={projectPath ?? "Unsaved project"}
+        >
+          {dirty && (
+            <span
+              className="dirty-dot"
+              title="Unsaved changes"
+              aria-label="Unsaved changes"
+            >
+              ●
+            </span>
+          )}
+          {projectPath ? basename(projectPath) : "Untitled"}
+        </span>
       </div>
 
       <span className="tb-div" />
@@ -160,6 +196,7 @@ export function FileBar({ project, onChanged }: Props) {
             run("Import", async () => {
               const r = await importAudioDialog();
               if (r) {
+                markDirty();
                 setMsg(`Imported ${r.name} (${r.duration_secs.toFixed(1)}s)`);
                 onChanged();
               }

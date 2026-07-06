@@ -23,7 +23,7 @@ export function trackColor(index: number): string {
 }
 
 // ---- geometry ----
-export const TRACK_HEIGHT = 88;
+export const TRACK_HEIGHT = 98;
 export const RULER_HEIGHT = 22;
 export const EDGE_PX = 6;
 export const SNAP_PX = 8;
