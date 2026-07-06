@@ -437,8 +437,11 @@ export function WaveformTimeline({
         : valid(armedTrackId)
           ? armedTrackId
           : tks[tks.length - 1]?.id;
-      const ti = tks.findIndex((t) => t.id === liveId);
-      if (ti >= 0) {
+      // Before the backend's just-created track lands (empty-timeline case), draw in
+      // the first lane so the user still sees live feedback immediately.
+      const found = tks.findIndex((t) => t.id === liveId);
+      const ti = found >= 0 ? found : 0;
+      {
         const laneTop = RULER_HEIGHT + ti * TRACK_HEIGHT + 4;
         const laneH = TRACK_HEIGHT - 8;
         const mid = laneTop + laneH / 2;
@@ -681,28 +684,19 @@ export function WaveformTimeline({
     const rect = el.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    const ti = Math.floor((y - RULER_HEIGHT) / TRACK_HEIGHT);
-    const track =
-      project.tracks[ti] ?? project.tracks[project.tracks.length - 1];
-    if (!track) {
-      api.addTrack(); // no track yet — create one, then drag again
-      return;
-    }
-    // Place at the drop point, or after the track's clips if that would overlap.
-    const wanted = Math.round(Math.max(0, xToSec(x)) * sr);
-    const len = src.frames;
-    const overlaps = track.clips.some(
-      (c) =>
-        wanted < c.timeline_start + (c.source_out - c.source_in) &&
-        c.timeline_start < wanted + len,
+    // Clamp into the lane range so a drop on the ruler lands on the first track (not
+    // the last, which the raw index -1 fallback would pick).
+    const ti = Math.min(
+      project.tracks.length - 1,
+      Math.max(0, Math.floor((y - RULER_HEIGHT) / TRACK_HEIGHT)),
     );
-    const start = overlaps
-      ? track.clips.reduce(
-          (m, c) =>
-            Math.max(m, c.timeline_start + (c.source_out - c.source_in)),
-          0,
-        )
-      : wanted;
+    const track = project.tracks[ti];
+    if (!track) return;
+    const start = freeStartOn(
+      track,
+      Math.round(Math.max(0, xToSec(x)) * sr),
+      src.frames,
+    );
     api.paste(
       {
         source_id: src.id,
@@ -739,6 +733,30 @@ export function WaveformTimeline({
     if (selected) api.split(selected, Math.round(playheadSec * sr));
   }, [selected, playheadSec, sr, api]);
 
+  // A non-overlapping start frame for a `len`-frame clip on `track`: the wanted
+  // position, or appended after the track's clips if that would overlap (mirrors the
+  // recording-placement and drag-drop behaviour, so placement is consistent everywhere).
+  const freeStartOn = (
+    track: ProjectView["tracks"][number],
+    wanted: number,
+    len: number,
+  ): number => {
+    const overlaps = track.clips.some(
+      (c) =>
+        wanted < c.timeline_start + (c.source_out - c.source_in) &&
+        c.timeline_start < wanted + len,
+    );
+    return overlaps
+      ? track.clips.reduce(
+          (m, c) =>
+            Math.max(m, c.timeline_start + (c.source_out - c.source_in)),
+          0,
+        )
+      : wanted;
+  };
+  const trackOfClip = (id: string) =>
+    project?.tracks.find((t) => t.clips.some((c) => c.id === id)) ?? null;
+
   // ---- Clipboard: copy / cut / paste / duplicate the selected clip ----
   const clipboard = useRef<ClipView | null>(null);
   const specFrom = (c: ClipView, timeline_start: number): ClipSpec => ({
@@ -770,17 +788,32 @@ export function WaveformTimeline({
 
   const pasteAtPlayhead = useCallback(() => {
     const c = clipboard.current;
-    const trackId = armedTrackId ?? project?.tracks[0]?.id;
-    if (!c || !trackId) return;
-    api.paste(specFrom(c, Math.round(playheadSec * sr)), trackId);
+    if (!c || !project) return;
+    // The clipboard source must still exist (New/Open can replace the pool).
+    if (!project.sources.some((s) => s.id === c.source_id)) {
+      clipboard.current = null;
+      return;
+    }
+    const track =
+      project.tracks.find((t) => t.id === armedTrackId) ?? project.tracks[0];
+    if (!track) return;
+    const len = c.source_out - c.source_in;
+    const start = freeStartOn(track, Math.round(playheadSec * sr), len);
+    api.paste(specFrom(c, start), track.id);
   }, [armedTrackId, project, playheadSec, sr, api]);
 
   const duplicateSel = useCallback(() => {
     const c = project && selected ? findClip(project, selected) : null;
-    if (!c) return;
-    // Place the copy after the original, or at the playhead if that's later.
-    const end = c.timeline_start + (c.source_out - c.source_in);
-    api.duplicate(c.id, Math.max(end, Math.round(playheadSec * sr)));
+    const track = c ? trackOfClip(c.id) : null;
+    if (!c || !track) return;
+    // Place the copy at the playhead (or after the original), snapping past any clip
+    // that would overlap — so Duplicate never fails on adjacent clips (e.g. split halves).
+    const len = c.source_out - c.source_in;
+    const wanted = Math.max(
+      c.timeline_start + len,
+      Math.round(playheadSec * sr),
+    );
+    api.duplicate(c.id, freeStartOn(track, wanted, len));
   }, [project, selected, playheadSec, sr, api]);
 
   // ---- Keyboard shortcuts (registered once; reads latest via a ref) ----
@@ -995,7 +1028,7 @@ export function WaveformTimeline({
           onDragOver={onCanvasDragOver}
           onDrop={onCanvasDrop}
         >
-          {!project || project.tracks.length === 0 ? (
+          {!project || (project.tracks.length === 0 && !recording) ? (
             <p className="wave-empty">
               Record, import, or drag a file from the pool to start your
               timeline.

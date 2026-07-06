@@ -231,9 +231,11 @@ export function useAudio() {
   const startRec = useCallback(async () => {
     try {
       setError(null);
+      await startRecording();
+      // Baseline the live waveform to when capture actually began (after the IPC), so
+      // the drawn buckets line up with the committed take instead of including pre-roll.
       recWave.current = { start: performance.now(), buckets: [] };
       recordingRef.current = true;
-      await startRecording();
       setRecording(true);
     } catch (e) {
       recordingRef.current = false;

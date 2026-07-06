@@ -27,12 +27,21 @@ export async function importToPoolDialog(): Promise<number> {
   if (!picked) return 0;
   const paths = Array.isArray(picked) ? picked : [picked];
   let n = 0;
+  const failed: string[] = [];
   for (const p of paths) {
-    if (typeof p === "string") {
+    if (typeof p !== "string") continue;
+    try {
       await invoke("import_to_pool", { path: p });
       n++;
+    } catch {
+      // Keep importing the rest; one bad file shouldn't discard the successful ones.
+      failed.push(p);
     }
   }
+  // Only surface an error if nothing imported; a partial success still returns n>0 so
+  // the caller refreshes and the good files appear.
+  if (n === 0 && failed.length)
+    throw new Error(`import failed (${failed.length} file(s))`);
   return n;
 }
 

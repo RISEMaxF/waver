@@ -369,16 +369,19 @@ pub fn start_recording(app: AppHandle, state: State<'_, AudioState>) -> Result<S
         .lock()
         .expect("rec path mutex poisoned") = Some(path.clone());
 
-    // If nothing is armed, create a track now (undoable) so the take has a home AND the
-    // live waveform has a lane to draw into — Audacity's "record makes a track" flow.
+    // If nothing valid is armed, create a track now (undoable) so the take has a home
+    // AND the live waveform has a lane to draw into — Audacity's "record makes a track".
     {
         let mut tgt = state
             .record_target
             .lock()
             .expect("record target mutex poisoned");
-        if tgt.0.is_none() {
-            let mut guard = state.edit.lock().expect("edit mutex poisoned");
-            let st = &mut *guard;
+        let mut guard = state.edit.lock().expect("edit mutex poisoned");
+        let st = &mut *guard;
+        let armed_exists = tgt
+            .0
+            .is_some_and(|id| st.project.tracks.iter().any(|t| t.id == id));
+        if !armed_exists {
             st.history.snapshot(&st.project);
             let name = format!("Track {}", st.project.tracks.len() + 1);
             tgt.0 = Some(st.project.add_track(name));
@@ -865,9 +868,25 @@ pub fn export_project(state: State<'_, AudioState>, req: ExportRequest) -> Resul
     waver_engine::export_project(&project, opts, &req.path).map_err(|e| e.to_string())
 }
 
-/// Reset to a fresh, empty project (keeping the current sample rate).
+/// Reset to a fresh, empty project (keeping the current sample rate). Also stops any
+/// transport and clears the record target so no stale playback/recording state points
+/// at clips that no longer exist.
 #[tauri::command]
 pub fn new_project(state: State<'_, AudioState>) -> ProjectView {
+    let _ = state
+        .playback
+        .lock()
+        .expect("playback mutex poisoned")
+        .take();
+    *state
+        .record_target
+        .lock()
+        .expect("record target mutex poisoned") = (None, 0);
+    *state
+        .recording_path
+        .lock()
+        .expect("rec path mutex poisoned") = None;
+
     let mut guard = state.edit.lock().expect("edit mutex poisoned");
     let sr = guard.project.sample_rate;
     guard.project = Project::new(sr);
