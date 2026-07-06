@@ -713,7 +713,11 @@ pub fn save_project(state: State<'_, AudioState>, path: String) -> Result<(), St
         guard.project.clone()
     };
     let json = serde_json::to_string_pretty(&project).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json).map_err(|e| e.to_string())
+    // Write atomically: write to a temp file next to the target, then rename, so an
+    // interrupted/partial write can't destroy an existing project file.
+    let tmp = format!("{path}.tmp");
+    std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
 }
 
 /// Result of loading a project: the view + any source files that are now missing.
@@ -729,6 +733,12 @@ pub struct LoadResult {
 pub fn load_project(state: State<'_, AudioState>, path: String) -> Result<LoadResult, String> {
     let json = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let project: Project = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+    // Reject a structurally-invalid project (overlapping clips, out-of-bounds ranges,
+    // dangling source ids) so it can't bypass the §3 invariants every edit enforces.
+    // Missing source *files* are a separate, soft condition reported below.
+    project
+        .validate()
+        .map_err(|e| format!("invalid project: {e}"))?;
     let missing_sources: Vec<String> = project
         .sources
         .iter()

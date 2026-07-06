@@ -14,6 +14,10 @@ use crate::mixer::Mixer;
 
 const RENDER_CHUNK: usize = 16_384; // frames per mix pass
 
+/// Sanity cap on export length (~24 h) so a corrupt project timeline can't trigger a
+/// giant/overflowing allocation. Real projects are far under this.
+const MAX_EXPORT_FRAMES: u64 = 48_000 * 3600 * 24;
+
 /// Output container / codec.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportFormat {
@@ -97,6 +101,12 @@ pub fn export_project(
 ) -> Result<(), EngineError> {
     let channels = opts.channels.max(1);
     let mixer = Mixer::new(project, channels)?;
+    if mixer.total_frames() > MAX_EXPORT_FRAMES {
+        return Err(EngineError::Backend(format!(
+            "project length {} frames exceeds the export cap",
+            mixer.total_frames()
+        )));
+    }
     let mut mixed = render_full(&mixer);
     if opts.sample_rate != project.sample_rate {
         mixed = resample_interleaved(

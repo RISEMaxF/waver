@@ -135,4 +135,21 @@ more reliable. `Info.plist` already carries `NSMicrophoneUsageDescription`.
 
 ---
 
+## Known follow-ups (from the M7/M8 review — not blocking)
+
+- **Streaming import/export.** Import decode and export mixdown currently buffer the
+  whole file in RAM (plus a copy when resampling). Fine for typical projects; a very
+  long (hour-scale) import/export could use a lot of memory. Should be refactored to
+  stream block-by-block (the record path is already bounded). An export length cap
+  guards against corrupt-project allocation aborts.
+- **Resampler quality.** Sample-rate conversion uses linear interpolation (correct
+  pitch/duration; some aliasing on downsampling). Upgrade to `rubato` (already a dep)
+  for band-limited quality when convenient.
+- **Multichannel downmix** sums source channels with no attenuation — folding many
+  channels to stereo could clip. Add -3/-6 dB per-fold or proper downmix coefficients.
+- **Saved projects use absolute source paths** — not portable across machines. Consider
+  relative/project-relative paths or bundling.
+
+---
+
 <!-- Later milestones append below. -->

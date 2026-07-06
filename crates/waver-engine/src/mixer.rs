@@ -61,11 +61,16 @@ pub struct Mixer {
 }
 
 impl Mixer {
-    /// Build a mixer for `project`, decoding all its sources into memory.
+    /// Build a mixer for `project`, decoding all its sources into memory. A source
+    /// that cannot be decoded (e.g. its file is missing after a project reload) is
+    /// skipped — its clips render as silence rather than failing the whole mix, so
+    /// playback/export degrade gracefully (mix_into already skips absent sources).
     pub fn new(project: &Project, out_channels: u16) -> Result<Self, EngineError> {
         let mut sources = HashMap::new();
         for src in &project.sources {
-            sources.insert(src.id, decode_wav(&src.path)?);
+            if let Ok(decoded) = decode_wav(&src.path) {
+                sources.insert(src.id, decoded);
+            }
         }
         Ok(Self {
             sources,
