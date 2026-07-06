@@ -1,7 +1,40 @@
+import { useState } from "react";
 import type { ClipView, FadeCurve, ProjectView } from "../../audio/project";
 import type { ProjectApi } from "../../audio/useProject";
 
 const CURVES: FadeCurve[] = ["linear", "equal_power", "log"];
+
+/** Clip name field: edits locally, commits on blur / Enter (avoids an IPC per keystroke). */
+function NameField({
+  value,
+  onCommit,
+}: {
+  value: string;
+  onCommit: (v: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const commit = () => {
+    const v = draft.trim();
+    if (v && v !== value) onCommit(v);
+    else setDraft(value);
+  };
+  return (
+    <input
+      className="insp-name"
+      value={draft}
+      aria-label="Clip name"
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") {
+          setDraft(value);
+          e.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
 
 interface Props {
   project: ProjectView | null;
@@ -25,9 +58,31 @@ export function Inspector({ project, selected, api, sr }: Props) {
   const { clip, track } = found;
   const msFrom = (frames: number) => Math.round((frames / sr) * 1000);
   const framesFrom = (ms: number) => Math.round((ms / 1000) * sr);
+  const src = project?.sources.find((s) => s.id === clip.source_id);
+  const chLabel = src
+    ? src.channels === 1
+      ? "Mono"
+      : src.channels === 2
+        ? "Stereo"
+        : `${src.channels}ch`
+    : "";
+  const lenSec = (clip.source_out - clip.source_in) / sr;
 
   return (
     <div className="inspector">
+      <div className="insp-group">
+        <NameField
+          key={clip.id}
+          value={clip.name}
+          onCommit={(n) => api.setClipName(clip.id, n)}
+        />
+      </div>
+      {src && (
+        <span className="insp-meta">
+          {chLabel} · {(src.sample_rate / 1000).toFixed(1)} kHz ·{" "}
+          {lenSec.toFixed(2)}s
+        </span>
+      )}
       <div className="insp-group">
         <label className="insp-label" htmlFor="insp-clip-gain">
           Clip gain

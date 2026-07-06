@@ -425,6 +425,22 @@ export function WaveformTimeline({
             tc,
           );
 
+        // Clip name label — a header strip at the top-left, Ableton/Audacity-style.
+        if (w > 22) {
+          const labelH = 14;
+          ctx.fillStyle = hexA(tc, isSel ? 0.9 : 0.62);
+          ctx.fillRect(Math.round(x0), drawTop, Math.round(w), labelH);
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(x0 + 2, drawTop, Math.max(0, w - 4), labelH);
+          ctx.clip();
+          ctx.fillStyle = "#fff";
+          ctx.font = "10px system-ui, sans-serif";
+          ctx.textBaseline = "middle";
+          ctx.fillText(clip.name, x0 + 5, drawTop + labelH / 2 + 0.5);
+          ctx.restore();
+        }
+
         // Fade envelopes (live length during a fade drag).
         let fadeInFrames = clip.fade_in_len;
         let fadeOutFrames = clip.fade_out_len;
@@ -783,6 +799,7 @@ export function WaveformTimeline({
     );
     api.paste(
       {
+        name: (src.path.split(/[\\/]/).pop() ?? "Clip").replace(/\.[^.]+$/, ""),
         source_id: src.id,
         source_channel: null,
         source_in: 0,
@@ -844,6 +861,7 @@ export function WaveformTimeline({
   // ---- Clipboard: copy / cut / paste / duplicate the selected clip ----
   const clipboard = useRef<ClipView | null>(null);
   const specFrom = (c: ClipView, timeline_start: number): ClipSpec => ({
+    name: c.name,
     source_id: c.source_id,
     source_channel: c.source_channel,
     source_in: c.source_in,

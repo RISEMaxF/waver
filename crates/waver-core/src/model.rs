@@ -161,6 +161,8 @@ impl Source {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Clip {
     pub id: Uuid,
+    /// Display name shown on the clip (defaults to the source file stem).
+    pub name: String,
     pub source_id: Uuid,
     /// `None` = all channels; `Some(n)` = a single split-out channel (spec FR-4.6).
     pub source_channel: Option<u16>,
@@ -180,6 +182,12 @@ impl Clip {
     pub fn new(source: &Source, timeline_start: u64) -> Self {
         Self {
             id: Uuid::new_v4(),
+            name: source
+                .path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "Clip".to_string()),
             source_id: source.id,
             source_channel: None,
             source_in: 0,

@@ -29,6 +29,7 @@ pub enum EditError {
 /// range, position, gain, and fades. Sent from the frontend clipboard.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClipSpec {
+    pub name: String,
     pub source_id: Uuid,
     pub source_in: u64,
     pub source_out: u64,
@@ -250,6 +251,15 @@ impl Project {
             .ok_or(EditError::TrackNotFound(track_id))
     }
 
+    /// Rename a clip.
+    pub fn set_clip_name(&mut self, clip_id: Uuid, name: String) -> Result<(), EditError> {
+        let (ti, ci) = self
+            .locate_clip(clip_id)
+            .ok_or(EditError::ClipNotFound(clip_id))?;
+        self.tracks[ti].clips[ci].name = name;
+        Ok(())
+    }
+
     /// Remove a track and all its clips. Sources stay in the pool (they may be shared
     /// or reused). Undoable via the snapshot history.
     pub fn remove_track(&mut self, track_id: Uuid) -> Result<(), EditError> {
@@ -286,6 +296,7 @@ impl Project {
             .source(spec.source_id)
             .ok_or(EditError::SourceNotFound(spec.source_id))?;
         let mut clip = Clip::new(source, spec.timeline_start);
+        clip.name = spec.name;
         clip.source_in = spec.source_in;
         clip.source_out = spec.source_out;
         clip.source_channel = spec.source_channel;
@@ -453,6 +464,7 @@ mod tests {
         let (mut p, track_id, clip_id) = project_with_clip();
         let src_id = p.clip(clip_id).unwrap().source_id;
         let spec = ClipSpec {
+            name: "pasted".to_string(),
             source_id: src_id,
             source_in: 2_000,
             source_out: 5_000,

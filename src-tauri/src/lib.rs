@@ -55,6 +55,7 @@ pub fn run() {
             commands::remove_track,
             commands::duplicate_clip,
             commands::paste_clip,
+            commands::set_clip_name,
             commands::set_record_target,
             commands::set_clip_fade_in,
             commands::set_clip_fade_out,

@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 export interface ClipView {
   id: string;
+  name: string;
   source_id: string;
   source_channel: number | null;
   source_in: number;
@@ -69,6 +70,8 @@ export const removeTrack = (trackId: string) =>
   invoke<ProjectView>("remove_track", { trackId });
 export const duplicateClip = (clipId: string, timelineStart: number) =>
   invoke<ProjectView>("duplicate_clip", { clipId, timelineStart });
+export const setClipName = (clipId: string, name: string) =>
+  invoke<ProjectView>("set_clip_name", { clipId, name });
 /** A clip's paste spec — every ClipView field except its id. */
 export type ClipSpec = Omit<ClipView, "id">;
 export const pasteClip = (spec: ClipSpec, trackId: string) =>

@@ -45,6 +45,7 @@ export function useProject() {
     addTrack: () => run(api.addTrack()),
     removeTrack: (id: string) => run(api.removeTrack(id)),
     duplicate: (id: string, start: number) => run(api.duplicateClip(id, start)),
+    setClipName: (id: string, name: string) => run(api.setClipName(id, name)),
     paste: (spec: api.ClipSpec, trackId: string) =>
       run(api.pasteClip(spec, trackId)),
     setFadeIn: (id: string, len: number, curve: api.FadeCurve) =>

@@ -141,6 +141,7 @@ pub struct TrackView {
 #[derive(Debug, Clone, Serialize)]
 pub struct ClipView {
     pub id: String,
+    pub name: String,
     pub source_id: String,
     pub source_channel: Option<u16>,
     pub source_in: u64,
@@ -200,6 +201,7 @@ impl ProjectView {
                         .iter()
                         .map(|c| ClipView {
                             id: c.id.to_string(),
+                            name: c.name.clone(),
                             source_id: c.source_id.to_string(),
                             source_channel: c.source_channel,
                             source_in: c.source_in,
@@ -296,6 +298,17 @@ pub fn add_track(state: State<'_, AudioState>) -> ProjectView {
 pub fn remove_track(state: State<'_, AudioState>, track_id: String) -> Result<ProjectView, String> {
     let id = parse_id(&track_id)?;
     apply_edit(&state, |p| p.remove_track(id))
+}
+
+/// Rename a clip (undoable).
+#[tauri::command]
+pub fn set_clip_name(
+    state: State<'_, AudioState>,
+    clip_id: String,
+    name: String,
+) -> Result<ProjectView, String> {
+    let id = parse_id(&clip_id)?;
+    apply_edit(&state, |p| p.set_clip_name(id, name.clone()))
 }
 
 /// Duplicate a clip onto its track at `timeline_start` (undoable).
@@ -471,6 +484,7 @@ pub fn stop_recording(state: State<'_, AudioState>) -> Result<RecordingResult, S
         // Placing a take is an undoable edit.
         st.history.snapshot(&st.project);
         let (sid, cid) = st.project.add_recording(source, track_id, start);
+        let _ = st.project.set_clip_name(cid, name.clone());
         (sid, cid, start)
     };
 
@@ -773,6 +787,12 @@ pub fn import_audio(
             .unwrap_or(0);
         st.history.snapshot(&st.project);
         let (sid, cid) = st.project.add_recording(source, track_id, start);
+        let import_name = std::path::Path::new(&path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Import")
+            .to_string();
+        let _ = st.project.set_clip_name(cid, import_name);
         (sid, cid, start)
     };
 
