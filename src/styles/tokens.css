@@ -1,0 +1,131 @@
+/* Design tokens — the single source of truth for theme/style.
+ *
+ * Two tiers: primitives (raw values) -> semantic aliases (what the UI consumes).
+ * App.css and components reference ONLY semantic tokens (never raw hex), and the
+ * canvas renderer reads the same --wave-* tokens via getComputedStyle, so a rebrand
+ * or a light/dark swap is a change to THIS file (plus a [data-theme] block) only.
+ *
+ * Toggle themes by setting `data-theme="light"|"dark"` on <html>. With no attribute,
+ * the OS preference decides (see prefers-color-scheme below).
+ */
+
+:root {
+  /* ---- primitives ---- */
+  --gray-950: #0e1116;
+  --gray-900: #161b22;
+  --gray-850: #12161c;
+  --gray-800: #0f1319;
+  --gray-700: #232b36;
+  --blue-400: #4cc2ff;
+  --blue-300: #8fd6ff;
+  --red-500: #f85149;
+  --green-500: #3fb950;
+  --amber-500: #d29922;
+
+  /* ---- semantic: color (dark is the default) ---- */
+  --color-surface: var(--gray-950);
+  --color-panel: var(--gray-900);
+  --color-border: var(--gray-700);
+  --color-text: #e6edf3;
+  --color-text-muted: #8b97a6;
+  --color-accent: var(--blue-400);
+  --color-ok: var(--green-500);
+  --color-warn: var(--amber-500);
+  --color-err: var(--red-500);
+  --color-focus-ring: var(--blue-400);
+
+  /* Back-compat aliases (existing rules use these short names). */
+  --bg: var(--color-surface);
+  --panel: var(--color-panel);
+  --edge: var(--color-border);
+  --ink: var(--color-text);
+  --muted: var(--color-text-muted);
+  --accent: var(--color-accent);
+  --ok: var(--color-ok);
+  --warn: var(--color-warn);
+  --err: var(--color-err);
+
+  /* ---- canvas palette (shared with the timeline renderer via getComputedStyle) ---- */
+  --wave: var(--blue-400);
+  --wave-sel: var(--blue-300);
+  --wave-lane: var(--gray-850);
+  --wave-lane-alt: var(--gray-800);
+  --wave-grid: #1c232e;
+  --wave-ruler: var(--color-text-muted);
+  --wave-clip: #16324a;
+  --wave-clip-sel: #1d4a6b;
+  --wave-clip-edge: #2b6a93;
+  --wave-clip-edge-sel: var(--blue-400);
+  --wave-snap: var(--amber-500);
+  --wave-playhead: var(--red-500);
+  --wave-fade-fill: color-mix(in srgb, var(--color-surface) 55%, transparent);
+
+  /* ---- spacing scale ---- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2.5rem;
+
+  /* ---- radii ---- */
+  --radius-sm: 4px;
+  --radius-md: 7px;
+  --radius-lg: 11px;
+
+  /* ---- typography ---- */
+  --font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-size-xs: 0.72rem;
+  --font-size-sm: 0.85rem;
+  --font-size-md: 1rem;
+  --font-size-lg: 1.25rem;
+  --font-size-xl: 1.75rem;
+  --font-size-2xl: 2.6rem;
+}
+
+/* ---- Light theme: override only the semantic + canvas colors ---- */
+:root[data-theme="light"] {
+  --color-surface: #f6f8fa;
+  --color-panel: #ffffff;
+  --color-border: #d0d7de;
+  --color-text: #1f2328;
+  --color-text-muted: #59636e;
+  --color-accent: #0969da;
+  --color-ok: #1a7f37;
+  --color-warn: #9a6700;
+  --color-err: #cf222e;
+
+  --wave: #0969da;
+  --wave-sel: #218bff;
+  --wave-lane: #eef1f4;
+  --wave-lane-alt: #e6eaef;
+  --wave-grid: #d8dee4;
+  --wave-clip: #cfe3f5;
+  --wave-clip-sel: #b6d7f2;
+  --wave-clip-edge: #6cb0e6;
+  --wave-clip-edge-sel: #0969da;
+}
+
+/* Follow the OS preference when no explicit theme is chosen. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --color-surface: #f6f8fa;
+    --color-panel: #ffffff;
+    --color-border: #d0d7de;
+    --color-text: #1f2328;
+    --color-text-muted: #59636e;
+    --color-accent: #0969da;
+    --color-ok: #1a7f37;
+    --color-warn: #9a6700;
+    --color-err: #cf222e;
+    --wave: #0969da;
+    --wave-sel: #218bff;
+    --wave-lane: #eef1f4;
+    --wave-lane-alt: #e6eaef;
+    --wave-grid: #d8dee4;
+    --wave-clip: #cfe3f5;
+    --wave-clip-sel: #b6d7f2;
+    --wave-clip-edge: #6cb0e6;
+    --wave-clip-edge-sel: #0969da;
+  }
+}

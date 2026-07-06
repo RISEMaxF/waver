@@ -33,21 +33,47 @@ const SNAP_PX = 8;
 const MIN_PPS = 2;
 const MAX_PPS = 6000;
 
-const C = {
-  bg: "#0e1116",
-  ruler: "#8b97a6",
-  grid: "#1c232e",
-  lane: "#12161c",
-  laneAlt: "#0f1319",
-  clip: "#16324a",
-  clipSel: "#1d4a6b",
-  clipEdge: "#2b6a93",
-  clipEdgeSel: "#4cc2ff",
-  wave: "#4cc2ff",
-  waveSel: "#8fd6ff",
-  playhead: "#f85149",
-  snap: "#d29922",
-};
+interface CanvasTheme {
+  bg: string;
+  ruler: string;
+  grid: string;
+  lane: string;
+  laneAlt: string;
+  clip: string;
+  clipSel: string;
+  clipEdge: string;
+  clipEdgeSel: string;
+  wave: string;
+  waveSel: string;
+  playhead: string;
+  snap: string;
+  fadeFill: string;
+}
+
+// The canvas can't read CSS variables directly, so resolve the --wave-* design
+// tokens (src/styles/tokens.css) via getComputedStyle. Recomputed on theme change,
+// so a rebrand or light/dark swap flows to the timeline automatically.
+function readCanvasTheme(): CanvasTheme {
+  const cs = getComputedStyle(document.documentElement);
+  const v = (n: string, fallback: string) =>
+    cs.getPropertyValue(n).trim() || fallback;
+  return {
+    bg: v("--color-surface", "#0e1116"),
+    ruler: v("--wave-ruler", "#8b97a6"),
+    grid: v("--wave-grid", "#1c232e"),
+    lane: v("--wave-lane", "#12161c"),
+    laneAlt: v("--wave-lane-alt", "#0f1319"),
+    clip: v("--wave-clip", "#16324a"),
+    clipSel: v("--wave-clip-sel", "#1d4a6b"),
+    clipEdge: v("--wave-clip-edge", "#2b6a93"),
+    clipEdgeSel: v("--wave-clip-edge-sel", "#4cc2ff"),
+    wave: v("--wave", "#4cc2ff"),
+    waveSel: v("--wave-sel", "#8fd6ff"),
+    playhead: v("--wave-playhead", "#f85149"),
+    snap: v("--wave-snap", "#d29922"),
+    fadeFill: v("--wave-fade-fill", "rgba(14,17,22,0.55)"),
+  };
+}
 
 type Drag =
   | { kind: "move"; clipId: string; grabSec: number }
@@ -74,6 +100,7 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
   const mouse = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const snapLine = useRef<number | null>(null);
   const drawRef = useRef<() => void>(() => {});
+  const theme = useRef<CanvasTheme>(readCanvasTheme());
   const [width, setWidth] = useState(800);
   const [pps, setPps] = useState(120);
   const [scrollSec, setScrollSec] = useState(0);
@@ -85,6 +112,27 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
   const [, tick] = useState(0);
 
   const sr = project?.sample_rate ?? 48000;
+
+  // Recompute the canvas palette when the theme changes (data-theme on <html> or the
+  // OS light/dark preference), then redraw so the timeline follows the theme.
+  useEffect(() => {
+    const update = () => {
+      theme.current = readCanvasTheme();
+      drawRef.current();
+    };
+    update();
+    const obs = new MutationObserver(update);
+    obs.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+    const mql = window.matchMedia("(prefers-color-scheme: light)");
+    mql.addEventListener("change", update);
+    return () => {
+      obs.disconnect();
+      mql.removeEventListener("change", update);
+    };
+  }, []);
 
   // ---- Transport (FR-6.1/6.2) ----
   const startPlay = useCallback(() => {
@@ -222,21 +270,21 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = C.bg;
+    ctx.fillStyle = theme.current.bg;
     ctx.fillRect(0, 0, width, height);
 
     const step = gridStep();
 
     // Track lanes.
     (project?.tracks ?? []).forEach((_t, i) => {
-      ctx.fillStyle = i % 2 ? C.laneAlt : C.lane;
+      ctx.fillStyle = i % 2 ? theme.current.laneAlt : theme.current.lane;
       ctx.fillRect(0, RULER_HEIGHT + i * TRACK_HEIGHT, width, TRACK_HEIGHT);
     });
 
     // Ruler + gridlines.
-    ctx.fillStyle = C.ruler;
+    ctx.fillStyle = theme.current.ruler;
     ctx.font = "10px system-ui, sans-serif";
-    ctx.strokeStyle = C.grid;
+    ctx.strokeStyle = theme.current.grid;
     ctx.lineWidth = 1;
     const first = Math.ceil(scrollSec / step) * step;
     for (let t = first; (t - scrollSec) * pps <= width; t += step) {
@@ -282,10 +330,12 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
         const w = lenSec * pps;
         if (x0 + w < 0 || x0 > width) continue;
         const isSel = clip.id === selected;
-        ctx.fillStyle = isSel ? C.clipSel : C.clip;
+        ctx.fillStyle = isSel ? theme.current.clipSel : theme.current.clip;
         ctx.globalAlpha = ghost ? 0.6 : 1;
         ctx.fillRect(x0, drawTop, w, laneH);
-        ctx.strokeStyle = isSel ? C.clipEdgeSel : C.clipEdge;
+        ctx.strokeStyle = isSel
+          ? theme.current.clipEdgeSel
+          : theme.current.clipEdge;
         ctx.lineWidth = isSel ? 2 : 1;
         ctx.strokeRect(
           Math.round(x0) + 0.5,
@@ -308,6 +358,7 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
             sr,
             isSel,
             width,
+            theme.current,
           );
 
         // Fade envelopes (live length during a fade drag).
@@ -338,6 +389,7 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
           drawTop,
           w,
           laneH,
+          theme.current,
         );
         drawFade(
           ctx,
@@ -350,6 +402,7 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
           drawTop,
           w,
           laneH,
+          theme.current,
         );
         ctx.globalAlpha = 1;
       }
@@ -359,7 +412,7 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
     if (drag.current && snapLine.current != null) {
       const x = (snapLine.current - scrollSec) * pps;
       if (x >= 0 && x <= width) {
-        ctx.strokeStyle = C.snap;
+        ctx.strokeStyle = theme.current.snap;
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 3]);
         ctx.beginPath();
@@ -373,7 +426,7 @@ export function WaveformTimeline({ project, api, outputId }: Props) {
     // Playhead.
     const px = (playheadSec - scrollSec) * pps;
     if (px >= 0 && px <= width) {
-      ctx.strokeStyle = C.playhead;
+      ctx.strokeStyle = theme.current.playhead;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(px, 0);
@@ -841,6 +894,7 @@ function drawFade(
   top: number,
   w: number,
   laneH: number,
+  th: CanvasTheme,
 ) {
   if (fadeFrames <= 0) return;
   const fadeW = Math.min(w, (fadeFrames / sr) * pps);
@@ -868,9 +922,9 @@ function drawFade(
     ctx.lineTo(xr - fadeW, top);
   }
   ctx.closePath();
-  ctx.fillStyle = "rgba(14,17,22,0.55)"; // darken the attenuated region
+  ctx.fillStyle = th.fadeFill; // darken the attenuated region
   ctx.fill();
-  ctx.strokeStyle = C.snap;
+  ctx.strokeStyle = th.snap;
   ctx.lineWidth = 1.5;
   ctx.stroke();
 }
@@ -911,6 +965,7 @@ function drawClipWave(
   sr: number,
   selected: boolean,
   viewWidth: number,
+  th: CanvasTheme,
 ) {
   const framesPerPixel = sr / pps;
   const level: PeakLevel | null = pickLevel(pyramid, framesPerPixel);
@@ -922,7 +977,7 @@ function drawClipWave(
     only == null ? Array.from({ length: srcCh }, (_, i) => i) : [only];
   const perChanH = laneH / drawChannels.length;
 
-  ctx.fillStyle = selected ? C.waveSel : C.wave;
+  ctx.fillStyle = selected ? th.waveSel : th.wave;
   const pxStart = Math.max(0, Math.floor(x0));
   const pxEnd = Math.min(viewWidth, Math.ceil(x0 + w));
 

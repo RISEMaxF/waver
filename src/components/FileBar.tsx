@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   exportProjectDialog,
   importAudioDialog,
@@ -19,6 +19,12 @@ export function FileBar({ project, onChanged }: Props) {
   const [bitDepth, setBitDepth] = useState<ExportBitDepth>("int24");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [dark, setDark] = useState(true);
+
+  // Theme toggle: set data-theme on <html>; the tokens + canvas follow it.
+  useEffect(() => {
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+  }, [dark]);
 
   const sampleRate = project?.sample_rate ?? 48000;
   const hasContent =
@@ -128,6 +134,16 @@ export function FileBar({ project, onChanged }: Props) {
           ⤴ Export
         </button>
       </div>
+
+      <button
+        type="button"
+        className="theme-toggle"
+        onClick={() => setDark((d) => !d)}
+        title="Toggle light / dark theme"
+        aria-label="Toggle theme"
+      >
+        {dark ? "☀" : "🌙"}
+      </button>
 
       {msg && <span className="filebar-msg">{msg}</span>}
     </div>

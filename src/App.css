@@ -1,20 +1,8 @@
+/* Colors, spacing, radii, and type come from src/styles/tokens.css (imported in
+ * main.tsx). This stylesheet consumes only those tokens. */
 :root {
-  --bg: #0e1116;
-  --panel: #161b22;
-  --edge: #232b36;
-  --ink: #e6edf3;
-  --muted: #8b97a6;
-  --accent: #4cc2ff;
-  --ok: #3fb950;
-  --warn: #d29922;
-  --err: #f85149;
-  font-family:
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    Roboto,
-    sans-serif;
-  color-scheme: dark;
+  font-family: var(--font-family);
+  color-scheme: light dark;
 }
 
 * {
@@ -25,6 +13,20 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
+}
+
+/* Accessibility: a visible focus ring on every focusable control (WCAG 2.4.7). */
+:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Respect users who prefer reduced motion (WCAG 2.3.3). */
+@media (prefers-reduced-motion: reduce) {
+  .cursor,
+  .rec-square {
+    animation: none;
+  }
 }
 
 .container {
