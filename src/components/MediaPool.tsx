@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { importToPoolDialog } from "../audio/files";
 import type { ProjectView, SourceView } from "../audio/project";
+import { IconChevronLeft, IconChevronRight, IconPlus } from "./icons";
 
 const basename = (p: string) => p.split(/[\\/]/).pop() ?? p;
 
@@ -41,7 +42,7 @@ export function MediaPool({
           title="Show media pool"
           aria-label="Show media pool"
         >
-          ⯈
+          <IconChevronRight />
         </button>
       </div>
     );
@@ -54,11 +55,13 @@ export function MediaPool({
         <div className="pool-actions">
           <button
             type="button"
+            className="tbtn"
             disabled={busy}
             onClick={addFiles}
             title="Import files into the pool"
           >
-            ＋ Add
+            <IconPlus />
+            <span>Add</span>
           </button>
           <button
             type="button"
@@ -67,7 +70,7 @@ export function MediaPool({
             title="Hide media pool"
             aria-label="Hide media pool"
           >
-            ⯇
+            <IconChevronLeft />
           </button>
         </div>
       </div>

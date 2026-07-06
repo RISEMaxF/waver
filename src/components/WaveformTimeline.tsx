@@ -18,6 +18,23 @@ import { fetchPeaks, type PeakPyramid } from "../audio/peaks";
 import { Inspector } from "./timeline/Inspector";
 import { TrackHeaders } from "./timeline/TrackHeaders";
 import {
+  IconChannels,
+  IconCopy,
+  IconCut,
+  IconDuplicate,
+  IconPaste,
+  IconPause,
+  IconPlay,
+  IconPlus,
+  IconRedo,
+  IconSplit,
+  IconStop,
+  IconTrash,
+  IconUndo,
+  IconZoomIn,
+  IconZoomOut,
+} from "./icons";
+import {
   drawClipWave,
   drawFade,
   findClip,
@@ -31,7 +48,14 @@ import {
   RULER_HEIGHT,
   SNAP_PX,
   TRACK_HEIGHT,
+  trackColor,
 } from "./timeline/renderer";
+
+// hex "#rrggbb" -> "rgba(r,g,b,a)" for translucent canvas fills.
+function hexA(hex: string, a: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}
 
 /** Live recording waveform buffer, timestamped from record start (see useAudio). */
 export type RecWaveRef = React.MutableRefObject<{
@@ -304,6 +328,7 @@ export function WaveformTimeline({
     (project?.tracks ?? []).forEach((track, ti) => {
       const laneTop = RULER_HEIGHT + ti * TRACK_HEIGHT + 4;
       const laneH = TRACK_HEIGHT - 8;
+      const tc = trackColor(ti); // track identity color
       for (const clip of track.clips) {
         const d = drag.current;
         let startSec = clip.timeline_start / sr;
@@ -332,10 +357,10 @@ export function WaveformTimeline({
         const w = lenSec * pps;
         if (x0 + w < 0 || x0 > width) continue;
         const isSel = clip.id === selected;
-        ctx.fillStyle = isSel ? th.clipSel : th.clip;
+        ctx.fillStyle = hexA(tc, isSel ? 0.4 : 0.22);
         ctx.globalAlpha = ghost ? 0.6 : 1;
         ctx.fillRect(x0, drawTop, w, laneH);
-        ctx.strokeStyle = isSel ? th.clipEdgeSel : th.clipEdge;
+        ctx.strokeStyle = isSel ? tc : hexA(tc, 0.7);
         ctx.lineWidth = isSel ? 2 : 1;
         ctx.strokeRect(
           Math.round(x0) + 0.5,
@@ -359,6 +384,7 @@ export function WaveformTimeline({
             isSel,
             width,
             th,
+            tc,
           );
 
         // Fade envelopes (live length during a fade drag).
@@ -894,95 +920,124 @@ export function WaveformTimeline({
   return (
     <div className="waveform">
       <div className="wave-toolbar">
-        <button
-          type="button"
-          className="transport"
-          disabled={!outputId || !project || project.tracks.length === 0}
-          onClick={playing ? togglePause : startPlay}
-          title={playing ? "Pause / resume (space)" : "Play (space)"}
-        >
-          {playing && !paused ? "⏸" : "▶"}
-        </button>
-        <button
-          type="button"
-          className="transport"
-          disabled={!playing}
-          onClick={stopPlay}
-          title="Stop"
-        >
-          ⏹
-        </button>
+        <div className="transport-group">
+          <button
+            type="button"
+            className="transport play"
+            disabled={!outputId || !project || project.tracks.length === 0}
+            onClick={playing ? togglePause : startPlay}
+            title={playing ? "Pause / resume (space)" : "Play (space)"}
+            aria-label={playing && !paused ? "Pause" : "Play"}
+          >
+            {playing && !paused ? (
+              <IconPause size={18} />
+            ) : (
+              <IconPlay size={18} />
+            )}
+          </button>
+          <button
+            type="button"
+            className="transport stop"
+            disabled={!playing}
+            onClick={stopPlay}
+            title="Stop"
+            aria-label="Stop"
+          >
+            <IconStop size={16} />
+          </button>
+        </div>
         <span className="tb-sep" />
         <button
           type="button"
+          className="tbtn"
           onClick={() => api.addTrack()}
           title="Add an empty track"
         >
-          ＋ Track
+          <IconPlus />
+          <span>Track</span>
         </button>
         <span className="tb-sep" />
         <button
           type="button"
+          className="tbtn icon-only"
           onClick={() => setPps((p) => Math.min(MAX_PPS, p * 1.5))}
+          title="Zoom in"
+          aria-label="Zoom in"
         >
-          Zoom +
+          <IconZoomIn />
         </button>
         <button
           type="button"
+          className="tbtn icon-only"
           onClick={() => setPps((p) => Math.max(MIN_PPS, p / 1.5))}
+          title="Zoom out"
+          aria-label="Zoom out"
         >
-          Zoom −
+          <IconZoomOut />
         </button>
         <span className="tb-sep" />
         <button
           type="button"
+          className="tbtn"
           disabled={!selected}
           onClick={splitAtPlayhead}
           title="Split at playhead (S)"
         >
-          ✂ Split
+          <IconSplit />
+          <span>Split</span>
         </button>
         <button
           type="button"
+          className="tbtn"
           disabled={!selected}
           onClick={duplicateSel}
           title="Duplicate clip (⌘/Ctrl+D)"
         >
-          ⧉ Duplicate
+          <IconDuplicate />
+          <span>Duplicate</span>
         </button>
         <button
           type="button"
+          className="tbtn"
           disabled={!selected}
           onClick={cutSel}
           title="Cut clip (⌘/Ctrl+X)"
         >
-          ✁ Cut
+          <IconCut />
+          <span>Cut</span>
         </button>
         <button
           type="button"
+          className="tbtn"
           disabled={!selected}
           onClick={copySel}
           title="Copy clip (⌘/Ctrl+C)"
         >
-          ⧉ Copy
+          <IconCopy />
+          <span>Copy</span>
         </button>
         <button
           type="button"
+          className="tbtn"
           onClick={pasteAtPlayhead}
           title="Paste at playhead on the armed track (⌘/Ctrl+V)"
         >
-          ⊞ Paste
+          <IconPaste />
+          <span>Paste</span>
         </button>
         <button
           type="button"
+          className="tbtn"
           disabled={!selected}
           onClick={() => selected && api.splitChannels(selected)}
           title="Split into mono channels"
         >
-          ⑃ Channels
+          <IconChannels />
+          <span>Channels</span>
         </button>
         <button
           type="button"
+          className="tbtn danger"
           disabled={!selected}
           onClick={() => {
             if (selected) {
@@ -990,8 +1045,10 @@ export function WaveformTimeline({
               setSelected(null);
             }
           }}
+          title="Delete clip"
         >
-          🗑 Delete
+          <IconTrash />
+          <span>Delete</span>
         </button>
         <label
           className="ripple-toggle"
@@ -1001,23 +1058,29 @@ export function WaveformTimeline({
             type="checkbox"
             checked={ripple}
             onChange={(e) => setRipple(e.target.checked)}
-          />{" "}
+          />
           Ripple
         </label>
         <span className="tb-sep" />
         <button
           type="button"
+          className="tbtn icon-only"
           disabled={!project?.can_undo}
           onClick={() => api.undo()}
+          title="Undo (⌘/Ctrl+Z)"
+          aria-label="Undo"
         >
-          ↶ Undo
+          <IconUndo />
         </button>
         <button
           type="button"
+          className="tbtn icon-only"
           disabled={!project?.can_redo}
           onClick={() => api.redo()}
+          title="Redo (⌘/Ctrl+Shift+Z)"
+          aria-label="Redo"
         >
-          ↷ Redo
+          <IconRedo />
         </button>
         <span className="wave-info">
           {pps.toFixed(0)} px/s · {playheadSec.toFixed(2)}s

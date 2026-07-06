@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { useAudio } from "../audio/useAudio";
 import { DeviceSelector } from "./DeviceSelector";
 import { Meter } from "./Meter";
+import { IconGear } from "./icons";
 
 function fmtElapsed(secs: number): string {
   const m = Math.floor(secs / 60);
@@ -45,7 +46,7 @@ export function AudioControls({
           title="Audio device settings"
           aria-expanded={open}
         >
-          <span className="ac-gear">⚙</span>
+          <IconGear />
           <span className="ac-device-name">{inputName}</span>
         </button>
         {open && (

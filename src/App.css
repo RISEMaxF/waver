@@ -40,6 +40,65 @@ body {
   }
 }
 
+/* ==================== Button system ==================== */
+/* One consistent control everywhere: icon (16px) + label on a single line. */
+.tbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--bg);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tbtn svg {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.tbtn:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.tbtn:hover:not(:disabled) svg {
+  color: var(--color-accent);
+}
+
+.tbtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.tbtn.icon-only {
+  width: 30px;
+  padding: 0;
+  justify-content: center;
+}
+
+.tbtn.danger:hover:not(:disabled),
+.tbtn.danger:hover:not(:disabled) svg {
+  border-color: var(--err);
+  color: var(--err);
+}
+
+/* Vertical group divider. */
+.tb-div {
+  width: 1px;
+  align-self: stretch;
+  min-height: 24px;
+  background: var(--color-border);
+  margin: 0 var(--space-1);
+}
+
 /* ==================== App shell ==================== */
 .app-shell {
   height: 100vh;
@@ -53,15 +112,20 @@ body {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-3) var(--space-4);
+  gap: 8px;
   padding: var(--space-2) var(--space-3);
   background: var(--color-panel);
   border-bottom: 1px solid var(--color-border);
-  min-height: 3rem;
+  min-height: 3.25rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.topbar::-webkit-scrollbar {
+  height: 0;
 }
 
 .brand {
+  flex-shrink: 0;
   display: flex;
   align-items: baseline;
   gap: 0.4rem;
@@ -121,42 +185,32 @@ body {
 .filebar {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .filebar-group {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 6px;
 }
 
-.filebar button,
-.filebar select,
-.filebar .theme-toggle {
-  padding: 0.35rem 0.6rem;
+.tbtn,
+.tb-div,
+.tb-sep,
+.filebar select {
+  flex-shrink: 0;
+}
+
+.filebar select {
+  height: 30px;
+  padding: 0 0.5rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
   background: var(--bg);
   color: var(--ink);
   font-size: var(--font-size-sm);
   cursor: pointer;
-}
-
-.filebar button:hover:not(:disabled),
-.filebar .theme-toggle:hover {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-}
-
-.filebar button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.filebar-group.export {
-  padding-left: var(--space-2);
-  border-left: 1px solid var(--color-border);
 }
 
 .filebar-msg {
@@ -177,9 +231,11 @@ body {
 /* ==================== Audio controls (device + meter + record) ==================== */
 .audio-controls {
   margin-left: auto;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  padding-left: var(--space-2);
 }
 
 .ac-device {
@@ -189,15 +245,21 @@ body {
 .ac-device-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  max-width: 16rem;
-  padding: 0.35rem 0.6rem;
+  gap: 6px;
+  max-width: 15rem;
+  height: 30px;
+  padding: 0 0.6rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
   background: var(--bg);
   color: var(--ink);
   font-size: var(--font-size-sm);
   cursor: pointer;
+}
+
+.ac-device-btn svg {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
 }
 
 .ac-device-btn.open,
@@ -226,6 +288,24 @@ body {
 }
 
 /* ---- Device selector (inside the popover) ---- */
+.devsel-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-bottom: var(--space-3);
+  margin-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.devsel-heading {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+}
+
 .devsel {
   display: flex;
   flex-direction: column;
@@ -270,20 +350,8 @@ body {
   opacity: 0.5;
 }
 
-.devsel-refresh {
+.devsel .tbtn {
   align-self: flex-start;
-  padding: 0.4rem 0.7rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  background: var(--bg);
-  color: var(--ink);
-  font-size: var(--font-size-sm);
-  cursor: pointer;
-}
-
-.devsel-refresh:hover {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
 }
 
 /* ---- Record button ---- */
@@ -524,18 +592,19 @@ body {
   gap: var(--space-1);
 }
 
-.pool-actions button,
 .pool-toggle {
-  padding: 0.2rem 0.45rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   background: var(--bg);
-  color: var(--ink);
-  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
   cursor: pointer;
 }
 
-.pool-actions button:hover,
 .pool-toggle:hover {
   border-color: var(--color-accent);
   color: var(--color-accent);
@@ -605,46 +674,62 @@ body {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 6px;
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
 }
 
-.wave-toolbar button {
-  padding: 0.3rem 0.6rem;
-  border-radius: var(--radius-md);
+/* ---- Transport: bigger, colored (green play / red stop) ---- */
+.transport-group {
+  display: flex;
+  gap: 6px;
+  padding-right: 4px;
+}
+
+.transport {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
   border: 1px solid var(--color-border);
   background: var(--bg);
-  color: var(--ink);
-  font-size: var(--font-size-xs);
   cursor: pointer;
 }
 
-.wave-toolbar button:hover:not(:disabled) {
-  border-color: var(--color-accent);
+.transport.play {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 55%, var(--color-border));
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
 }
 
-.wave-toolbar button:disabled {
+.transport.play:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ok) 26%, transparent);
+}
+
+.transport.stop {
+  color: var(--err);
+  border-color: color-mix(in srgb, var(--err) 55%, var(--color-border));
+  background: color-mix(in srgb, var(--err) 14%, transparent);
+}
+
+.transport.stop:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--err) 26%, transparent);
+}
+
+.transport:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
 
-.wave-toolbar button.transport {
-  font-size: 0.95rem;
-  min-width: 2rem;
-  padding: 0.25rem 0.55rem;
-}
-
-.wave-toolbar button.transport:not(:disabled) {
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--edge));
-  color: var(--color-accent);
-}
-
 .tb-sep {
   width: 1px;
-  height: 20px;
+  align-self: stretch;
+  min-height: 22px;
   background: var(--color-border);
-  margin: 0 0.15rem;
+  margin: 0 2px;
 }
 
 .ripple-toggle {
@@ -689,27 +774,40 @@ body {
 /* ---- Track headers (per-track control panel) ---- */
 .track-headers {
   flex-shrink: 0;
-  width: 168px;
+  width: 190px;
   border-right: 1px solid var(--color-border);
   background: var(--color-panel);
 }
 
 .track-head {
+  position: relative;
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 0.35rem;
-  padding: 0.4rem 0.55rem;
   border-bottom: 1px solid var(--color-border);
 }
 
-.track-head.dimmed {
-  opacity: 0.55;
+/* Track identity color strip (Ableton-style), set per track via --track-color. */
+.track-color-strip {
+  width: 5px;
+  flex-shrink: 0;
+  background: var(--track-color, var(--color-accent));
+}
+
+.track-head-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 7px;
+  padding: 0.45rem 0.6rem;
+}
+
+.track-head.dimmed .track-head-main {
+  opacity: 0.5;
 }
 
 .track-head.armed {
-  background: color-mix(in srgb, var(--err) 8%, transparent);
-  box-shadow: inset 3px 0 0 var(--err);
+  background: color-mix(in srgb, var(--err) 9%, transparent);
 }
 
 .track-head-top {
@@ -727,14 +825,35 @@ body {
   white-space: nowrap;
 }
 
+.track-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  opacity: 0.5;
+  cursor: pointer;
+}
+
+.track-remove:hover {
+  opacity: 1;
+  color: var(--err);
+  background: color-mix(in srgb, var(--err) 14%, transparent);
+}
+
 .track-toggles {
   display: flex;
-  gap: 0.25rem;
+  gap: 5px;
 }
 
 .ts-btn {
-  width: 20px;
-  height: 20px;
+  width: 26px;
+  height: 22px;
   padding: 0;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
@@ -745,9 +864,8 @@ body {
   cursor: pointer;
 }
 
-.ts-btn.remove:hover {
-  border-color: var(--err);
-  color: var(--err);
+.ts-btn:hover {
+  border-color: var(--color-text-muted);
 }
 
 .ts-btn.arm.on {

@@ -10,6 +10,16 @@ import {
   type ExportFormat,
 } from "../audio/files";
 import type { ProjectView } from "../audio/project";
+import {
+  IconExport,
+  IconImport,
+  IconMoon,
+  IconNew,
+  IconOpen,
+  IconSave,
+  IconSaveAs,
+  IconSun,
+} from "./icons";
 
 interface Props {
   project: ProjectView | null;
@@ -52,21 +62,7 @@ export function FileBar({ project, onChanged }: Props) {
       <div className="filebar-group">
         <button
           type="button"
-          disabled={busy}
-          onClick={() =>
-            run("Import", async () => {
-              const r = await importAudioDialog();
-              if (r) {
-                setMsg(`Imported ${r.name} (${r.duration_secs.toFixed(1)}s)`);
-                onChanged();
-              }
-            })
-          }
-        >
-          ⤵ Import audio
-        </button>
-        <button
-          type="button"
+          className="tbtn"
           disabled={busy}
           title="Start a new empty project"
           onClick={() =>
@@ -78,10 +74,12 @@ export function FileBar({ project, onChanged }: Props) {
             })
           }
         >
-          🆕 New
+          <IconNew />
+          <span>New</span>
         </button>
         <button
           type="button"
+          className="tbtn"
           disabled={busy}
           onClick={() =>
             run("Open", async () => {
@@ -98,10 +96,12 @@ export function FileBar({ project, onChanged }: Props) {
             })
           }
         >
-          📂 Open
+          <IconOpen />
+          <span>Open</span>
         </button>
         <button
           type="button"
+          className="tbtn"
           disabled={busy}
           title={
             projectPath ? `Save to ${basename(projectPath)}` : "Save project"
@@ -121,10 +121,12 @@ export function FileBar({ project, onChanged }: Props) {
             })
           }
         >
-          💾 Save
+          <IconSave />
+          <span>Save</span>
         </button>
         <button
           type="button"
+          className="tbtn"
           disabled={busy}
           title="Save to a new file"
           onClick={() =>
@@ -137,7 +139,8 @@ export function FileBar({ project, onChanged }: Props) {
             })
           }
         >
-          Save As…
+          <IconSaveAs />
+          <span>Save As</span>
         </button>
         {projectPath && (
           <span className="filebar-project" title={projectPath}>
@@ -146,7 +149,26 @@ export function FileBar({ project, onChanged }: Props) {
         )}
       </div>
 
-      <div className="filebar-group export">
+      <span className="tb-div" />
+
+      <div className="filebar-group">
+        <button
+          type="button"
+          className="tbtn"
+          disabled={busy}
+          onClick={() =>
+            run("Import", async () => {
+              const r = await importAudioDialog();
+              if (r) {
+                setMsg(`Imported ${r.name} (${r.duration_secs.toFixed(1)}s)`);
+                onChanged();
+              }
+            })
+          }
+        >
+          <IconImport />
+          <span>Import</span>
+        </button>
         <select
           value={format}
           onChange={(e) => setFormat(e.target.value as ExportFormat)}
@@ -168,6 +190,7 @@ export function FileBar({ project, onChanged }: Props) {
         </select>
         <button
           type="button"
+          className="tbtn"
           disabled={busy || !hasContent}
           onClick={() =>
             run("Export", async () => {
@@ -184,18 +207,21 @@ export function FileBar({ project, onChanged }: Props) {
             hasContent ? "Export mixdown" : "Record or import something first"
           }
         >
-          ⤴ Export
+          <IconExport />
+          <span>Export</span>
         </button>
       </div>
 
+      <span className="tb-div" />
+
       <button
         type="button"
-        className="theme-toggle"
+        className="tbtn icon-only theme-toggle"
         onClick={() => setDark((d) => !d)}
         title="Toggle light / dark theme"
         aria-label="Toggle theme"
       >
-        {dark ? "☀" : "🌙"}
+        {dark ? <IconSun /> : <IconMoon />}
       </button>
 
       {msg && <span className="filebar-msg">{msg}</span>}

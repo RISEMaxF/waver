@@ -5,6 +5,23 @@
 import type { ClipView, ProjectView } from "../../audio/project";
 import { pickLevel, type PeakLevel, type PeakPyramid } from "../../audio/peaks";
 
+// Per-track identity colors (Ableton-style): headers show a strip, clips take a tint.
+const TRACK_COLORS = [
+  "#4cc2ff",
+  "#7ee787",
+  "#ffa657",
+  "#d2a8ff",
+  "#f778ba",
+  "#ffd966",
+  "#79c0ff",
+  "#56d364",
+];
+export function trackColor(index: number): string {
+  return TRACK_COLORS[
+    ((index % TRACK_COLORS.length) + TRACK_COLORS.length) % TRACK_COLORS.length
+  ];
+}
+
 // ---- geometry ----
 export const TRACK_HEIGHT = 88;
 export const RULER_HEIGHT = 22;
@@ -175,6 +192,7 @@ export function drawClipWave(
   selected: boolean,
   viewWidth: number,
   th: CanvasTheme,
+  waveColor?: string,
 ) {
   const framesPerPixel = sr / pps;
   const level: PeakLevel | null = pickLevel(pyramid, framesPerPixel);
@@ -187,9 +205,31 @@ export function drawClipWave(
   const perChanH = laneH / drawChannels.length;
 
   const gain = waveDisplayGain(pyramid);
-  ctx.fillStyle = selected ? th.waveSel : th.wave;
   const pxStart = Math.max(0, Math.floor(x0));
   const pxEnd = Math.min(viewWidth, Math.ceil(x0 + w));
+
+  // Multichannel: split into per-channel sub-lanes with a divider + L/R (or n) labels,
+  // the way Audacity stacks stereo channels.
+  if (drawChannels.length > 1) {
+    ctx.strokeStyle = th.grid;
+    ctx.lineWidth = 1;
+    for (let k = 1; k < drawChannels.length; k++) {
+      const y = Math.round(top + k * perChanH) + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(x0, y);
+      ctx.lineTo(Math.min(viewWidth, x0 + w), y);
+      ctx.stroke();
+    }
+    ctx.fillStyle = th.ruler;
+    ctx.font = "9px system-ui, sans-serif";
+    const labels = drawChannels.length === 2 ? ["L", "R"] : null;
+    drawChannels.forEach((_c, laneIdx) => {
+      const label = labels ? labels[laneIdx] : String(laneIdx + 1);
+      ctx.fillText(label, x0 + 3, top + laneIdx * perChanH + 10);
+    });
+  }
+
+  ctx.fillStyle = selected ? th.waveSel : (waveColor ?? th.wave);
 
   for (let px = pxStart; px < pxEnd; px++) {
     const clipFrame = (px - x0) * framesPerPixel;

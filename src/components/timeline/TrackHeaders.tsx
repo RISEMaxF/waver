@@ -1,7 +1,8 @@
 import { ask } from "@tauri-apps/plugin-dialog";
 import type { ProjectApi } from "../../audio/useProject";
 import type { ProjectView } from "../../audio/project";
-import { RULER_HEIGHT, TRACK_HEIGHT } from "./renderer";
+import { IconClose } from "../icons";
+import { RULER_HEIGHT, TRACK_HEIGHT, trackColor } from "./renderer";
 
 interface Props {
   project: ProjectView | null;
@@ -34,19 +35,34 @@ export function TrackHeaders({
   return (
     <div className="track-headers" aria-label="Track controls">
       <div className="track-headers-spacer" style={{ height: RULER_HEIGHT }} />
-      {tracks.map((t) => {
+      {tracks.map((t, i) => {
         const dimmed = t.muted || (anySolo && !t.soloed);
         const armed = t.id === armedTrackId;
         return (
           <div
             key={t.id}
             className={`track-head${dimmed ? " dimmed" : ""}${armed ? " armed" : ""}`}
-            style={{ height: TRACK_HEIGHT }}
+            style={{
+              height: TRACK_HEIGHT,
+              ["--track-color" as string]: trackColor(i),
+            }}
           >
-            <div className="track-head-top">
-              <span className="track-name" title={t.name}>
-                {t.name}
-              </span>
+            <span className="track-color-strip" />
+            <div className="track-head-main">
+              <div className="track-head-top">
+                <span className="track-name" title={t.name}>
+                  {t.name}
+                </span>
+                <button
+                  type="button"
+                  className="track-remove"
+                  onClick={() => removeTrack(t.id, t.name, t.clips.length)}
+                  title="Delete track"
+                  aria-label={`Delete ${t.name}`}
+                >
+                  <IconClose size={13} />
+                </button>
+              </div>
               <div className="track-toggles">
                 <button
                   type="button"
@@ -75,29 +91,24 @@ export function TrackHeaders({
                 >
                   S
                 </button>
-                <button
-                  type="button"
-                  className="ts-btn remove"
-                  onClick={() => removeTrack(t.id, t.name, t.clips.length)}
-                  title="Delete track"
-                  aria-label={`Delete ${t.name}`}
-                >
-                  ✕
-                </button>
               </div>
-            </div>
-            <div className="track-head-gain">
-              <input
-                type="range"
-                min={-24}
-                max={12}
-                step={0.5}
-                value={t.gain_db}
-                onChange={(e) => api.setTrackGain(t.id, Number(e.target.value))}
-                aria-label={`${t.name} gain`}
-                title={`${t.gain_db.toFixed(1)} dB`}
-              />
-              <span className="track-gain-val">{t.gain_db.toFixed(0)}</span>
+              <div className="track-head-gain">
+                <input
+                  type="range"
+                  min={-24}
+                  max={12}
+                  step={0.5}
+                  value={t.gain_db}
+                  onChange={(e) =>
+                    api.setTrackGain(t.id, Number(e.target.value))
+                  }
+                  aria-label={`${t.name} gain`}
+                  title={`${t.gain_db.toFixed(1)} dB`}
+                />
+                <span className="track-gain-val">
+                  {t.gain_db.toFixed(0)} dB
+                </span>
+              </div>
             </div>
           </div>
         );
