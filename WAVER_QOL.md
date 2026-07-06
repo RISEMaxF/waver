@@ -61,18 +61,20 @@ De-duplicated from the two tool lists (overlapping items merged: time-range sele
 
 ### Tier 1 — Quick wins (small effort, high leverage)
 
-| Feature                                           | Tool(s)  | Benefit                                                                                                                 | Effort    |
-| ------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------- | --------- |
-| **Follow playhead / scroll-follow**               | Both     | View auto-scrolls to keep playhead visible on zoomed sessions; position polling already exists, just drive `scrollSec`. | small     |
-| **Right-click context menus** (clip/track/ruler)  | Both     | Split/duplicate/delete/rename/color where the pointer is; no `onContextMenu` exists today.                              | small–med |
-| **Arrow-key nudge** of selected clip              | Both     | Precise, repeatable placement by grid step; keydown handler currently ignores arrows.                                   | small     |
-| **Snap enable/disable toggle + momentary bypass** | Both     | Free-hand placement near clip edges without fighting the always-on snap.                                                | small     |
-| **Fit-to-window** (zoom to fit project)           | Audacity | One-click overview after zooming; only incremental zoom exists now.                                                     | small     |
-| **Zoom-to-selection**                             | Audacity | Frame the selected clip/range for detailed trims.                                                                       | small     |
-| **Timeline quick-play** (click ruler to audition) | Audacity | Removes the separate Play press on every "what does this sound like".                                                   | small     |
-| **Fold / unfold all tracks**                      | Ableton  | Global collapse toggle; per-track chevron exists but no session-wide one.                                               | small     |
-| **Keyboard shortcuts cheat-sheet** (`?` overlay)  | Both     | Makes the existing buried shortcuts discoverable/trustworthy.                                                           | small     |
-| **Zoom-adaptive beat-grid**                       | Both     | Grid density follows zoom; time-grid already adaptive, beat-grid still a manual dropdown.                               | small     |
+Status: ✅ = shipped (commit `2a3e004`), ⬜ = still open.
+
+| Feature                                           | Tool(s)  | Benefit                                                                                             | Status |
+| ------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------- | ------ |
+| **Follow playhead / scroll-follow**               | Both     | View auto-scrolls to keep playhead visible; toggle in toolbar, re-pages on the playback poll.       | ✅     |
+| **Arrow-key nudge** of selected clip              | Both     | ←/→ nudge by one grid step (Shift = ×4), overlap-guarded.                                           | ✅     |
+| **Snap enable/disable toggle + momentary bypass** | Both     | Toolbar magnet toggle + `N`; hold Alt while dragging to bypass. Gates grid + clip-edge snap.        | ✅     |
+| **Fit-to-window** (zoom to fit project)           | Audacity | `F` / toolbar — sets pps+scroll to frame all content.                                               | ✅     |
+| **Zoom-to-selection**                             | Audacity | `E` / toolbar — frames the selected clip.                                                           | ✅     |
+| **Fold / unfold all tracks**                      | Ableton  | `T` / toolbar — session-wide collapse toggle.                                                       | ✅     |
+| **Keyboard shortcuts cheat-sheet** (`?` overlay)  | Both     | `?` / toolbar help button; Esc to close.                                                            | ✅     |
+| **Right-click context menus** (clip/track/ruler)  | Both     | Split/duplicate/delete/rename/color where the pointer is; no `onContextMenu` exists today.          | ⬜     |
+| **Timeline quick-play** (click ruler to audition) | Audacity | Removes the separate Play press on every "what does this sound like". (Ruler already scrubs+seeks.) | ⬜     |
+| **Zoom-adaptive beat-grid**                       | Both     | Grid density follows zoom; time-grid already adaptive, beat-grid still a manual dropdown.           | ⬜     |
 
 ### Tier 2 — Medium effort, high value
 
