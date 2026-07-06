@@ -21,9 +21,20 @@ export function AudioControls({
   onToggleRecord: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [anchorLeft, setAnchorLeft] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const inputName =
     audio.inputs.find((d) => d.id === audio.inputId)?.name ?? "No input";
+
+  const toggle = () => {
+    // Opening leftward (right:0) would clip when the button sits near the left edge
+    // (e.g. the top bar has wrapped) — anchor to the left instead.
+    if (!open && wrapRef.current) {
+      const r = wrapRef.current.getBoundingClientRect();
+      setAnchorLeft(r.right - 360 < 8);
+    }
+    setOpen((o) => !o);
+  };
 
   // Close the popover on outside click.
   useEffect(() => {
@@ -42,7 +53,7 @@ export function AudioControls({
         <button
           type="button"
           className={`ac-device-btn${open ? " open" : ""}`}
-          onClick={() => setOpen((o) => !o)}
+          onClick={toggle}
           title="Audio device settings"
           aria-expanded={open}
         >
@@ -50,7 +61,11 @@ export function AudioControls({
           <span className="ac-device-name">{inputName}</span>
         </button>
         {open && (
-          <div className="ac-popover" role="dialog" aria-label="Audio settings">
+          <div
+            className={`ac-popover${anchorLeft ? " anchor-left" : ""}`}
+            role="dialog"
+            aria-label="Audio settings"
+          >
             <DeviceSelector
               inputs={audio.inputs}
               outputs={audio.outputs}

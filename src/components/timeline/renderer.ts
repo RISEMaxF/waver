@@ -23,7 +23,7 @@ export function trackColor(index: number): string {
 }
 
 // ---- geometry ----
-export const TRACK_HEIGHT = 98;
+export const TRACK_HEIGHT = 112;
 export const RULER_HEIGHT = 22;
 export const EDGE_PX = 6;
 export const SNAP_PX = 8;
@@ -46,6 +46,12 @@ export interface CanvasTheme {
   playhead: string;
   snap: string;
   fadeFill: string;
+  fadeShade: string;
+  fadeLine: string;
+  fadeHandle: string;
+  labelText: string;
+  clipAlpha: number;
+  clipAlphaSel: number;
 }
 
 // The canvas can't read CSS variables directly, so resolve the --wave-* design
@@ -70,6 +76,12 @@ export function readCanvasTheme(): CanvasTheme {
     playhead: v("--wave-playhead", "#f85149"),
     snap: v("--wave-snap", "#d29922"),
     fadeFill: v("--wave-fade-fill", "rgba(14,17,22,0.55)"),
+    fadeShade: v("--wave-fade-shade", "rgba(8,10,14,0.55)"),
+    fadeLine: v("--wave-fade-line", "rgba(255,255,255,0.92)"),
+    fadeHandle: v("--wave-fade-handle", "#ffffff"),
+    labelText: v("--wave-label-text", "#ffffff"),
+    clipAlpha: parseFloat(v("--wave-clip-alpha", "0.22")) || 0.22,
+    clipAlphaSel: parseFloat(v("--wave-clip-alpha-sel", "0.4")) || 0.4,
   };
 }
 
@@ -158,7 +170,7 @@ export function drawFade(
     ctx.lineTo(xr, top);
   }
   ctx.closePath();
-  ctx.fillStyle = "rgba(8, 10, 14, 0.55)"; // darken the attenuated region
+  ctx.fillStyle = th.fadeShade; // darken the attenuated region
   ctx.fill();
 
   // The fade curve line itself — bright and crisp over any clip color.
@@ -179,14 +191,14 @@ export function drawFade(
       );
     }
   }
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.92)";
+  ctx.strokeStyle = th.fadeLine;
   ctx.lineWidth = 1.75;
   ctx.stroke();
 
   // Grab handle at the top corner.
   ctx.beginPath();
   ctx.arc(handleX, top + 1.5, 3.5, 0, Math.PI * 2);
-  ctx.fillStyle = "#fff";
+  ctx.fillStyle = th.fadeHandle;
   ctx.fill();
   ctx.strokeStyle = th.clipEdge;
   ctx.lineWidth = 1;

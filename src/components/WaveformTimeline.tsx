@@ -395,7 +395,7 @@ export function WaveformTimeline({
         const w = lenSec * pps;
         if (x0 + w < 0 || x0 > width) continue;
         const isSel = clip.id === selected;
-        ctx.fillStyle = hexA(tc, isSel ? 0.4 : 0.22);
+        ctx.fillStyle = hexA(tc, isSel ? th.clipAlphaSel : th.clipAlpha);
         ctx.globalAlpha = ghost ? 0.6 : 1;
         ctx.fillRect(x0, drawTop, w, laneH);
         ctx.strokeStyle = isSel ? tc : hexA(tc, 0.7);
@@ -434,7 +434,7 @@ export function WaveformTimeline({
           ctx.beginPath();
           ctx.rect(x0 + 2, drawTop, Math.max(0, w - 4), labelH);
           ctx.clip();
-          ctx.fillStyle = "#fff";
+          ctx.fillStyle = th.labelText;
           ctx.font = "10px system-ui, sans-serif";
           ctx.textBaseline = "middle";
           ctx.fillText(clip.name, x0 + 5, drawTop + labelH / 2 + 0.5);

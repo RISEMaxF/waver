@@ -238,8 +238,9 @@ function trackDetail(
   t: ProjectView["tracks"][number],
   project: ProjectView | null,
 ): string {
+  const projRate = `${((project?.sample_rate ?? 48000) / 1000).toFixed(1)} kHz`;
   const n = t.clips.length;
-  if (n === 0) return "Empty track";
+  if (n === 0) return `Empty · ${projRate}`;
   const sources = project?.sources ?? [];
   const used = t.clips
     .map((c) => sources.find((s) => s.id === c.source_id))

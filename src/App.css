@@ -141,6 +141,54 @@ body {
   margin: 0 var(--space-1);
 }
 
+/* ==================== Form controls: sliders & number inputs (F6) ==================== */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 16px;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--color-border);
+}
+input[type="range"]::-moz-range-track {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--color-border);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 13px;
+  height: 13px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: var(--slider-thumb, var(--color-accent));
+  border: 2px solid var(--color-panel);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 35%);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--slider-thumb, var(--color-accent));
+  border: 2px solid var(--color-panel);
+}
+
+input[type="range"]:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Track gain sliders take their track's identity color. */
+.track-head-gain input[type="range"] {
+  --slider-thumb: var(--track-color, var(--color-accent));
+}
+
 /* ==================== App shell ==================== */
 .app-shell {
   height: 100vh;
@@ -354,6 +402,11 @@ body {
   box-shadow: 0 8px 28px rgb(0 0 0 / 35%);
 }
 
+.ac-popover.anchor-left {
+  right: auto;
+  left: 0;
+}
+
 /* ---- Device selector (inside the popover) ---- */
 .devsel-section {
   display: flex;
@@ -442,8 +495,15 @@ body {
   cursor: not-allowed;
 }
 
-.rec-btn.start:not(:disabled):hover {
+/* Record is the app's primary action — a resting red CTA (F25). */
+.rec-btn.start:not(:disabled) {
   border-color: var(--err);
+  background: color-mix(in srgb, var(--err) 22%, transparent);
+  color: var(--err);
+}
+
+.rec-btn.start:not(:disabled):hover {
+  background: color-mix(in srgb, var(--err) 34%, transparent);
 }
 
 .rec-btn.stop {
@@ -511,11 +571,13 @@ body {
   width: 22px;
   height: 200px;
   border-radius: 4px;
+  /* Zones aligned with the fill (F7): green ≤ -12 dBFS (80%), amber -12…-6 (80–90%),
+     red ≥ -6 dBFS (90%). 0..-60 dBFS maps to 100..0%. */
   background: linear-gradient(
     to top,
     color-mix(in srgb, var(--ok) 22%, var(--panel)) 0%,
-    color-mix(in srgb, var(--ok) 22%, var(--panel)) 70%,
-    color-mix(in srgb, var(--warn) 22%, var(--panel)) 70%,
+    color-mix(in srgb, var(--ok) 22%, var(--panel)) 80%,
+    color-mix(in srgb, var(--warn) 22%, var(--panel)) 80%,
     color-mix(in srgb, var(--warn) 22%, var(--panel)) 90%,
     color-mix(in srgb, var(--err) 22%, var(--panel)) 90%,
     color-mix(in srgb, var(--err) 22%, var(--panel)) 100%
@@ -532,8 +594,10 @@ body {
   background: linear-gradient(
     to top,
     var(--ok) 0%,
-    var(--ok) 66%,
+    var(--ok) 80%,
     var(--warn) 80%,
+    var(--warn) 90%,
+    var(--err) 90%,
     var(--err) 100%
   );
   transition: height 60ms linear;
@@ -603,8 +667,8 @@ body {
   background: linear-gradient(
     to right,
     color-mix(in srgb, var(--ok) 22%, var(--panel)) 0%,
-    color-mix(in srgb, var(--ok) 22%, var(--panel)) 70%,
-    color-mix(in srgb, var(--warn) 22%, var(--panel)) 70%,
+    color-mix(in srgb, var(--ok) 22%, var(--panel)) 80%,
+    color-mix(in srgb, var(--warn) 22%, var(--panel)) 80%,
     color-mix(in srgb, var(--warn) 22%, var(--panel)) 90%,
     color-mix(in srgb, var(--err) 22%, var(--panel)) 90%,
     color-mix(in srgb, var(--err) 22%, var(--panel)) 100%
@@ -649,8 +713,10 @@ body {
   background: linear-gradient(
     to right,
     var(--ok) 0%,
-    var(--ok) 66%,
+    var(--ok) 80%,
     var(--warn) 80%,
+    var(--warn) 90%,
+    var(--err) 90%,
     var(--err) 100%
   );
   transition: width 60ms linear;
@@ -992,7 +1058,8 @@ body {
 }
 
 .track-head.armed {
-  background: color-mix(in srgb, var(--err) 9%, transparent);
+  background: color-mix(in srgb, var(--err) 18%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--err) 45%, transparent);
 }
 
 .track-head-top {
@@ -1066,9 +1133,9 @@ body {
 }
 
 .ts-btn.solo.on {
-  background: color-mix(in srgb, var(--accent) 30%, transparent);
-  border-color: var(--accent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--color-solo) 28%, transparent);
+  border-color: var(--color-solo);
+  color: var(--color-solo);
 }
 
 .track-head-gain {

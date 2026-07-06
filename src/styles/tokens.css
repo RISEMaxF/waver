@@ -27,11 +27,12 @@
   --color-panel: var(--gray-900);
   --color-border: var(--gray-700);
   --color-text: #e6edf3;
-  --color-text-muted: #8b97a6;
+  --color-text-muted: #9fabbb; /* raised from #8b97a6 for legibility (F5) */
   --color-accent: var(--blue-400);
   --color-ok: var(--green-500);
   --color-warn: var(--amber-500);
   --color-err: var(--red-500);
+  --color-solo: #ffd23f; /* distinct hue so Solo ≠ the blue accent (F22) */
   --color-focus-ring: var(--blue-400);
 
   /* Back-compat aliases (existing rules use these short names). */
@@ -59,6 +60,14 @@
   --wave-snap: var(--amber-500);
   --wave-playhead: var(--red-500);
   --wave-fade-fill: color-mix(in srgb, var(--color-surface) 55%, transparent);
+  /* Fade rendering + clip label — theme-aware so they read in light mode too (F3). */
+  --wave-fade-shade: rgba(8, 10, 14, 0.55);
+  --wave-fade-line: rgba(255, 255, 255, 0.92);
+  --wave-fade-handle: #ffffff;
+  --wave-label-text: #ffffff;
+  /* Clip fill alpha over the lane (F4): lighter theme needs a stronger tint. */
+  --wave-clip-alpha: 0.22;
+  --wave-clip-alpha-sel: 0.4;
 
   /* ---- spacing scale ---- */
   --space-1: 0.25rem;
@@ -104,11 +113,23 @@
   --wave-clip-sel: #b6d7f2;
   --wave-clip-edge: #6cb0e6;
   --wave-clip-edge-sel: #0969da;
+  --color-solo: #b8860b;
+  --wave-fade-shade: rgba(20, 24, 30, 0.3);
+  --wave-fade-line: rgba(25, 30, 40, 0.85);
+  --wave-fade-handle: #1f2328;
+  --wave-clip-alpha: 0.34;
+  --wave-clip-alpha-sel: 0.55;
 }
 
 /* Follow the OS preference when no explicit theme is chosen. */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) {
+    --color-solo: #b8860b;
+    --wave-fade-shade: rgba(20, 24, 30, 0.3);
+    --wave-fade-line: rgba(25, 30, 40, 0.85);
+    --wave-fade-handle: #1f2328;
+    --wave-clip-alpha: 0.34;
+    --wave-clip-alpha-sel: 0.55;
     --color-surface: #f6f8fa;
     --color-panel: #ffffff;
     --color-border: #d0d7de;
