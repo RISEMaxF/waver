@@ -9,6 +9,28 @@ Legend: ⬜ not yet checked · ✅ passed · ❌ failed (add notes)
 
 ---
 
+## ⚠️ Microphone permission (macOS) — recording captures silence in `dev`
+
+**Symptom:** a take records and appears on the timeline, but it's silent (peak ≈ −120 dBFS).
+**Cause:** `npm run tauri dev` runs the _unsigned_ `target/debug/waver` binary. macOS TCC
+often won't show the mic prompt for an unsigned dev binary, so CoreAudio feeds silence.
+The capture pipeline itself is correct (the file is valid 32-bit float WAV, right
+duration/rate/channels, and lands on the timeline).
+
+**Fix — run a bundled build (gets a proper mic prompt):**
+
+```sh
+npm run tauri build
+open "src-tauri/target/release/bundle/macos/Waver.app"
+```
+
+Grant microphone access when prompted (or System Settings → Privacy & Security →
+Microphone → enable Waver). Recording will then capture real signal.
+Alternatively, add the dev binary/Terminal under Privacy → Microphone, but bundled is
+more reliable. `Info.plist` already carries `NSMicrophoneUsageDescription`.
+
+---
+
 ## M2 — Clean recording
 
 - ⬜ **FR-2.3 loopback bit-transparency (RELEASE-BLOCKING).**
@@ -83,6 +105,33 @@ Legend: ⬜ not yet checked · ✅ passed · ❌ failed (add notes)
 - Note: playback requests the project sample rate on the output device; if the device
   can't honor it, pitch/sync could drift (resampling is M7). Loop-region playback is
   wired in the engine but not yet exposed in the UI.
+
+---
+
+## M7 — Import & export
+
+- ⬜ **FR-7.1 import each format.** Import a WAV, FLAC, MP3, OGG, AAC/M4A, ALAC, AIFF
+  (via the ⤵ Import audio button) and confirm each lands on the timeline and plays at
+  correct pitch/duration. A 44.1 kHz file imported into the 48 kHz project must play at
+  correct pitch (resample is unit-tested). Note: decode is Symphonia 0.6.
+- ⬜ **FR-7.2/7.3 export options play in a reference tool.** Export WAV (16/24/32f),
+  FLAC, at the project rate and a different rate; open each in Audacity/ffprobe and
+  confirm format, bit depth, sample rate, and that it sounds like the mix. WAV export is
+  unit-tested sample-accurate; FLAC is unit-tested bit-for-bit lossless via the claxon
+  reference decoder.
+- ⚠️ **Known interop quirk:** FLAC files written by `flacenc` decode losslessly in
+  claxon and standard players, but **Symphonia (our importer) fails to decode them** —
+  so exporting FLAC and re-importing it into Waver won't work (import a standard FLAC
+  from elsewhere and it's fine). Tracked for follow-up.
+- ⬜ **OGG export is not yet wired** (returns a clear error). WAV + FLAC are the shipped
+  export formats; OGG/MP3 are follow-ups.
+
+## M8 — Persistence
+
+- ⬜ **FR-8.1 save/load round-trips.** Build a timeline, Save project, restart the app,
+  Open project — confirm the timeline is identical (clips, positions, gains, fades). The
+  Project model's serde round-trip is unit-tested; missing source files are reported (not
+  a crash) on load.
 
 ---
 

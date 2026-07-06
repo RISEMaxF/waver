@@ -16,7 +16,9 @@ use tauri_plugin_store::StoreExt;
 use waver_core::edit::{EditError, History};
 use waver_core::engine::{DeviceInfo, HostInfo, MeterUpdate, StreamParams};
 use waver_core::model::{FadeCurve, Project, Source};
-use waver_engine::{InputSession, LoopRegion, NativeEngine, Playback};
+use waver_engine::{
+    BitDepth, ExportFormat, ExportOptions, InputSession, LoopRegion, NativeEngine, Playback,
+};
 
 /// The project model plus its undo/redo history, guarded together to keep them
 /// consistent under one lock.
@@ -595,6 +597,155 @@ pub fn playback_status(state: State<'_, AudioState>) -> PlaybackStatus {
             position_frames: 0,
         },
     }
+}
+
+/// FR-7.1 — import an audio file: decode+transcode to a scratch WAV, then place it
+/// on the timeline as a non-destructive clip (like a recording).
+#[tauri::command]
+pub fn import_audio(
+    app: AppHandle,
+    state: State<'_, AudioState>,
+    path: String,
+) -> Result<RecordingResult, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("imported");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    let project_rate = {
+        let guard = state.edit.lock().expect("edit mutex poisoned");
+        guard.project.sample_rate
+    };
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let stem = std::path::Path::new(&path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("import");
+    let scratch = dir.join(format!("{stem}-{stamp}.wav"));
+
+    let info =
+        waver_engine::import_file(&path, project_rate, &scratch).map_err(|e| e.to_string())?;
+    if info.frames == 0 {
+        return Err("imported file has no audio".into());
+    }
+
+    let n = state.takes.fetch_add(1, Ordering::SeqCst) + 1;
+    let source = Source::new(
+        info.path.clone(),
+        info.channels,
+        info.sample_rate,
+        info.frames,
+    );
+    let (source_id, clip_id, start) = {
+        let mut guard = state.edit.lock().expect("edit mutex poisoned");
+        let st = &mut *guard;
+        let track_id = st.project.tracks.first().map(|t| t.id);
+        let start = st
+            .project
+            .tracks
+            .first()
+            .and_then(|t| t.clips.iter().map(|c| c.timeline_end()).max())
+            .unwrap_or(0);
+        st.history.snapshot(&st.project);
+        let (sid, cid) = st.project.add_recording(source, track_id, start);
+        (sid, cid, start)
+    };
+
+    Ok(RecordingResult {
+        source_id: source_id.to_string(),
+        clip_id: clip_id.to_string(),
+        name: format!("Import {n}"),
+        path: info.path.to_string_lossy().to_string(),
+        channels: info.channels,
+        sample_rate: info.sample_rate,
+        frames: info.frames,
+        duration_secs: info.frames as f64 / info.sample_rate.max(1) as f64,
+        timeline_start: start,
+        xrun: false,
+    })
+}
+
+/// FR-7.2/7.3 — export/mixdown the project to a file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExportRequest {
+    pub path: String,
+    pub format: String,    // "wav" | "flac" | "ogg"
+    pub bit_depth: String, // "int16" | "int24" | "float32"
+    pub sample_rate: u32,
+    pub channels: u16,
+}
+
+#[tauri::command]
+pub fn export_project(state: State<'_, AudioState>, req: ExportRequest) -> Result<(), String> {
+    let format = match req.format.as_str() {
+        "flac" => ExportFormat::Flac,
+        "ogg" => ExportFormat::Ogg,
+        _ => ExportFormat::Wav,
+    };
+    let bit_depth = match req.bit_depth.as_str() {
+        "int16" => BitDepth::Int16,
+        "int24" => BitDepth::Int24,
+        _ => BitDepth::Float32,
+    };
+    let opts = ExportOptions {
+        format,
+        sample_rate: req.sample_rate,
+        bit_depth,
+        channels: req.channels.max(1),
+    };
+    let project = {
+        let guard = state.edit.lock().expect("edit mutex poisoned");
+        guard.project.clone()
+    };
+    waver_engine::export_project(&project, opts, &req.path).map_err(|e| e.to_string())
+}
+
+/// FR-8.1 — save the project (JSON referencing source paths) to `path`.
+#[tauri::command]
+pub fn save_project(state: State<'_, AudioState>, path: String) -> Result<(), String> {
+    let project = {
+        let guard = state.edit.lock().expect("edit mutex poisoned");
+        guard.project.clone()
+    };
+    let json = serde_json::to_string_pretty(&project).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+/// Result of loading a project: the view + any source files that are now missing.
+#[derive(Debug, Clone, Serialize)]
+pub struct LoadResult {
+    pub project: ProjectView,
+    pub missing_sources: Vec<String>,
+}
+
+/// FR-8.1 — load a project from `path`, replacing the current one. Missing source
+/// files are reported per-source rather than failing the load.
+#[tauri::command]
+pub fn load_project(state: State<'_, AudioState>, path: String) -> Result<LoadResult, String> {
+    let json = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let project: Project = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+    let missing_sources: Vec<String> = project
+        .sources
+        .iter()
+        .filter(|s| !s.path.exists())
+        .map(|s| s.path.to_string_lossy().to_string())
+        .collect();
+
+    let view = {
+        let mut guard = state.edit.lock().expect("edit mutex poisoned");
+        guard.project = project;
+        guard.history = History::default();
+        ProjectView::of(&guard.project, &guard.history)
+    };
+    Ok(LoadResult {
+        project: view,
+        missing_sources,
+    })
 }
 
 /// FR-4.7 — undo the last edit.

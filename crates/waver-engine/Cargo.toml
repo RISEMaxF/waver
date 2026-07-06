@@ -18,5 +18,11 @@ waver-core = { path = "../waver-core" }
 cpal = { workspace = true }
 rtrb = { workspace = true }
 hound = { workspace = true }
+symphonia = { workspace = true }
+rubato = { workspace = true }
+flacenc = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
+
+[dev-dependencies]
+claxon = "0.4"

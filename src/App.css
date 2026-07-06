@@ -521,3 +521,53 @@ body {
   border-color: color-mix(in srgb, var(--accent) 40%, var(--edge));
   color: var(--accent);
 }
+
+/* ---- File bar ---- */
+.filebar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 1.5rem;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.filebar-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.filebar-group.export {
+  margin-left: auto;
+}
+
+.filebar button,
+.filebar select {
+  padding: 0.4rem 0.7rem;
+  border-radius: 7px;
+  border: 1px solid var(--edge);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.filebar button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.filebar button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.filebar-msg {
+  width: 100%;
+  font-size: 0.78rem;
+  color: var(--muted);
+}

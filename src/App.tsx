@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useAudio } from "./audio/useAudio";
 import { useProject } from "./audio/useProject";
 import { DeviceSelector } from "./components/DeviceSelector";
+import { FileBar } from "./components/FileBar";
 import { Meter } from "./components/Meter";
 import { Recorder } from "./components/Recorder";
 import { WaveformTimeline } from "./components/WaveformTimeline";
@@ -49,6 +50,8 @@ function App() {
           </p>
         )}
       </header>
+
+      <FileBar project={project.project} onChanged={project.refresh} />
 
       {audio.notice && <p className="notice">{audio.notice}</p>}
       {audio.error && <p className="error-banner">{audio.error}</p>}

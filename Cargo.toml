@@ -25,6 +25,8 @@ hound = "3.5"
 symphonia = { version = "0.6", features = ["all"] }
 rtrb = "0.3"
 rubato = "3"
+flacenc = "0.5"
+vorbis_rs = "0.5"
 
 [profile.release]
 # Audio work benefits from optimized builds even in debug-ish flows; keep the

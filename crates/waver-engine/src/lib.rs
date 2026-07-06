@@ -13,6 +13,8 @@
 
 pub mod capture;
 pub mod enumerate;
+pub mod export;
+pub mod import;
 pub mod input;
 pub mod meter;
 pub mod mixer;
@@ -21,6 +23,8 @@ pub mod playback;
 
 pub use capture::{RecordingInfo, WavRecorder};
 pub use enumerate::{enumerate_devices, enumerate_hosts};
+pub use export::{export_project, BitDepth, ExportFormat, ExportOptions};
+pub use import::{import_file, ImportInfo};
 pub use input::{open as open_input, InputSession};
 pub use mixer::{decode_wav, DecodedSource, Mixer};
 pub use peaks::{build_pyramid, encode_pyramid, generate_for_wav};

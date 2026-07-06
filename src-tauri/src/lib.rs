@@ -29,6 +29,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_dialog::init())
         .manage(AudioState::default())
         .invoke_handler(tauri::generate_handler![
             app_info,
@@ -54,6 +55,10 @@ pub fn run() {
             commands::pause_playback,
             commands::stop_playback,
             commands::playback_status,
+            commands::import_audio,
+            commands::export_project,
+            commands::save_project,
+            commands::load_project,
             commands::undo,
             commands::redo,
             commands::load_settings,
