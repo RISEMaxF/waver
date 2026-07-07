@@ -2,11 +2,52 @@ import { useEffect, useRef, useState } from "react";
 import type { ChannelLevel } from "../audio/types";
 import { IconMic, IconRefresh } from "./icons";
 
+/** Time-based meter ballistics, animated by rAF so the display is snappy and smooth
+ *  regardless of how fast level updates actually arrive over IPC (review of the
+ *  "sluggish meter" report: per-update decay stalls when updates are sparse).
+ *  Attack is instant; release is dB-per-SECOND. Returns live dB values per channel. */
+export function useMeterBallistics(
+  levels: ChannelLevel[],
+  releaseDbPerSec = 90,
+  floor = -60,
+): number[] {
+  const disp = useRef<number[]>([]);
+  const latest = useRef<number[]>([]);
+  const [, frame] = useState(0);
+  latest.current = levels.map((l) => l.peak_dbfs);
+  useEffect(() => {
+    let raf = 0;
+    let last = performance.now();
+    let alive = true;
+    const loop = (now: number) => {
+      if (!alive) return;
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      const tgt = latest.current;
+      const d = disp.current;
+      let changed = false;
+      for (let i = 0; i < Math.max(tgt.length, d.length); i++) {
+        const cur = d[i] ?? floor;
+        const next = Math.max(tgt[i] ?? floor, cur - releaseDbPerSec * dt);
+        if (Math.abs(next - cur) > 0.01) changed = true;
+        d[i] = next;
+      }
+      if (changed) frame((n) => n + 1);
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => {
+      alive = false;
+      cancelAnimationFrame(raf);
+    };
+  }, [releaseDbPerSec, floor]);
+  return levels.map((_, i) => disp.current[i] ?? floor);
+}
+
 // Meter display range. Below MIN_DBFS reads as silence.
 const MIN_DBFS = -60;
 const MAX_DBFS = 0;
 const PEAK_DECAY_DB = 1.2; // peak-hold falls this many dB per update
-const BAR_RELEASE_DB = 0.55; // bar release per update (~44 dB/s at 80 Hz emits)
 const CLIP_HOLD_MS = 2500; // clip latch auto-expires; click still clears it
 
 function normalize(dbfs: number): number {
@@ -25,11 +66,10 @@ export function Meter({
   channels: ChannelLevel[];
   compact?: boolean;
 }) {
-  // Ballistics: the bar tracks PEAK with instant attack and a fast exponential
-  // release (peak-programme feel - RMS reads sluggish); the white tick is a slow
-  // peak-hold; the clip latch auto-expires after a moment (or click to clear).
+  // Ballistics: peak with instant attack + time-based release, animated by rAF
+  // (see useMeterBallistics); slow peak-hold tick; self-expiring clip latch.
+  const barDb = useMeterBallistics(channels);
   const holds = useRef<number[]>([]);
-  const bar = useRef<number[]>([]);
   const clipAt = useRef<number[]>([]);
   const [, bump] = useState(0);
   // Numeric readout updated at most ~5x/s (rounded to whole dB) so it's readable rather
@@ -45,10 +85,6 @@ export function Meter({
         ch.peak_dbfs,
         (holds.current[i] ?? MIN_DBFS) - PEAK_DECAY_DB,
       );
-      bar.current[i] = Math.max(
-        ch.peak_dbfs,
-        (bar.current[i] ?? MIN_DBFS) - BAR_RELEASE_DB,
-      );
       if (ch.peak_dbfs >= -0.1) clipAt.current[i] = now;
       peak = Math.max(peak, ch.peak_dbfs);
     });
@@ -61,7 +97,6 @@ export function Meter({
 
   const reset = () => {
     holds.current = [];
-    bar.current = [];
     clipAt.current = [];
     bump((n) => n + 1);
   };
@@ -88,39 +123,45 @@ export function Meter({
       {compact && <IconMic size={12} className="meter-mic" />}
       <div className={compact ? "meter-col" : undefined}>
         <div className="meter-bars">
-        {channels.map((level, i) => {
-          const rmsPct = normalize(bar.current[i] ?? level.peak_dbfs);
-          const peakPct = normalize(level.peak_dbfs);
-          const holdPct = normalize(holds.current[i] ?? MIN_DBFS);
-          const isClipped = !!clipAt.current[i] && now - clipAt.current[i] < CLIP_HOLD_MS;
-          return (
-            <div className="meter-channel" key={i}>
-              <span
-                className={`meter-clip${isClipped ? " on" : ""}`}
-                title="Clipped"
-              />
-              <div className="meter-track">
-                {/* dB reference ticks at -24/-12/-6 (fractions of the -60..0 range) */}
-                {compact && <span className="meter-ticks" aria-hidden="true" />}
-                <div className="meter-rms" style={sizeStyle(compact, rmsPct)} />
-                <div
-                  className="meter-peak"
-                  style={posStyle(compact, peakPct)}
+          {channels.map((level, i) => {
+            const rmsPct = normalize(barDb[i] ?? level.peak_dbfs);
+            const peakPct = normalize(level.peak_dbfs);
+            const holdPct = normalize(holds.current[i] ?? MIN_DBFS);
+            const isClipped =
+              !!clipAt.current[i] && now - clipAt.current[i] < CLIP_HOLD_MS;
+            return (
+              <div className="meter-channel" key={i}>
+                <span
+                  className={`meter-clip${isClipped ? " on" : ""}`}
+                  title="Clipped"
                 />
-                <div
-                  className="meter-hold"
-                  style={posStyle(compact, holdPct)}
-                />
-              </div>
-              {!compact && (
-                <div className="meter-readout">
-                  <span className="meter-db">{fmtDb(level.peak_dbfs)}</span>
-                  <span className="meter-ch">{i + 1}</span>
+                <div className="meter-track">
+                  {/* dB reference ticks at -24/-12/-6 (fractions of the -60..0 range) */}
+                  {compact && (
+                    <span className="meter-ticks" aria-hidden="true" />
+                  )}
+                  <div
+                    className="meter-rms"
+                    style={sizeStyle(compact, rmsPct)}
+                  />
+                  <div
+                    className="meter-peak"
+                    style={posStyle(compact, peakPct)}
+                  />
+                  <div
+                    className="meter-hold"
+                    style={posStyle(compact, holdPct)}
+                  />
                 </div>
-              )}
-            </div>
-          );
-        })}
+                {!compact && (
+                  <div className="meter-readout">
+                    <span className="meter-db">{fmtDb(level.peak_dbfs)}</span>
+                    <span className="meter-ch">{i + 1}</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
         {compact && (
           <div className="meter-scale" aria-hidden="true">

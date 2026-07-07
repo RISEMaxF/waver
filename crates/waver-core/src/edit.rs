@@ -142,6 +142,18 @@ impl Project {
         Ok(())
     }
 
+    /// Delete several clips as ONE edit (one undo step; multi-select delete).
+    /// Unknown ids are ignored so a stale selection can't fail the whole batch.
+    pub fn delete_clips(&mut self, ids: &[Uuid]) -> Result<usize, EditError> {
+        let mut n = 0;
+        for track in &mut self.tracks {
+            let before = track.clips.len();
+            track.clips.retain(|c| !ids.contains(&c.id));
+            n += before - track.clips.len();
+        }
+        Ok(n)
+    }
+
     /// Delete everything inside `[start, end)` across all tracks. Clips fully
     /// inside vanish; clips overlapping one edge are cut at it; a clip spanning the
     /// whole range keeps its outer remainders. With `ripple`, material at/after

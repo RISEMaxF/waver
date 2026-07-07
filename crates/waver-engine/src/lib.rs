@@ -25,6 +25,7 @@ pub mod playback;
 pub use analyze::nearest_zero_crossing;
 pub use capture::{RecordingInfo, WavRecorder};
 pub use enumerate::{enumerate_devices, enumerate_hosts};
+pub use export::consolidate_track_range;
 pub use export::{export_project, BitDepth, ExportFormat, ExportOptions};
 pub use import::{import_file, ImportInfo};
 pub use input::{open as open_input, InputSession};

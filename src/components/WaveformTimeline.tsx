@@ -178,6 +178,8 @@ export function WaveformTimeline({
   const [scrollSec, setScrollSec] = useState(0);
   const [playheadSec, setPlayheadSec] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
+  // Additional selected clips (shift/cmd-click). `selected` stays the primary.
+  const [multiSel, setMultiSel] = useState<Set<string>>(new Set());
   const [ripple, setRipple] = useState(false);
   const [cursor, setCursor] = useState("default");
   // null = unset (auto-arm picks a track); "none" = the user disarmed on purpose (W-07).
@@ -212,6 +214,13 @@ export function WaveformTimeline({
     setTbWide(el.clientWidth >= 980);
     return () => ro.disconnect();
   }, []);
+
+  // Start point (second playhead, hollow marker): where Space/Play begins. Set by
+  // every explicit user seek; playback returns here on stop or natural end, so
+  // pressing play again replays from the same spot (Ableton behavior).
+  const [startPointSec, setStartPointSec] = useState(0);
+  const startPointRef = useRef(0);
+  startPointRef.current = startPointSec;
 
   // Playback speed (1 = normal); stretch preserves pitch, repitch is tape-style.
   const [playSpeed, setPlaySpeed] = useState(1);
@@ -587,12 +596,37 @@ export function WaveformTimeline({
             }
           }
         }
+        // Range/loop band on the ruler: draggable body + edge grips (the ruler is
+        // the loop region's home, Ableton-style).
+        if (range) {
+          const bx0 = (range.start - scrollSec) * pps;
+          const bx1 = (range.end - scrollSec) * pps;
+          if (bx1 > 0 && bx0 < width) {
+            rx.fillStyle = hexA(th.clipEdgeSel, loopOn ? 0.4 : 0.22);
+            rx.fillRect(bx0, 0, bx1 - bx0, RULER_HEIGHT - 6);
+            rx.fillStyle = th.clipEdgeSel;
+            rx.fillRect(Math.round(bx0), 0, 2, RULER_HEIGHT - 6);
+            rx.fillRect(Math.round(bx1) - 2, 0, 2, RULER_HEIGHT - 6);
+          }
+        }
         // bottom divider + playhead handle
         rx.strokeStyle = th.grid;
         rx.beginPath();
         rx.moveTo(0, RULER_HEIGHT - 0.5);
         rx.lineTo(width, RULER_HEIGHT - 0.5);
         rx.stroke();
+        // Start point: hollow marker (the second playhead - where play begins).
+        const spx = (startPointSec - scrollSec) * pps;
+        if (spx >= 0 && spx <= width && Math.abs(spx - (playheadSec - scrollSec) * pps) > 1) {
+          rx.strokeStyle = th.playhead;
+          rx.lineWidth = 1.5;
+          rx.beginPath();
+          rx.moveTo(spx - 5, 1);
+          rx.lineTo(spx + 5, 1);
+          rx.lineTo(spx, 9);
+          rx.closePath();
+          rx.stroke();
+        }
         const rpx = (playheadSec - scrollSec) * pps;
         if (rpx >= 0 && rpx <= width) {
           rx.fillStyle = th.playhead;
@@ -692,7 +726,7 @@ export function WaveformTimeline({
         const x0 = (startSec - scrollSec) * pps;
         const w = lenSec * pps;
         if (x0 + w < 0 || x0 > width) continue;
-        const isSel = clip.id === selected;
+        const isSel = clip.id === selected || multiSel.has(clip.id);
         // Fill and stroke share rounded geometry; the half-pixel crisping offset only
         // applies to odd line widths, so the selected 2px border stays sharp (W-37).
         const rx0 = Math.round(x0);
@@ -947,6 +981,9 @@ export function WaveformTimeline({
     gridDiv,
     stepSec,
     range,
+    startPointSec,
+    loopOn,
+    multiSel,
   ]);
 
   drawRef.current = draw;
@@ -1001,7 +1038,18 @@ export function WaveformTimeline({
           : "grabbing";
 
   // ---- Ruler scrubbing (sets the playhead / seeks) ----
-  const rulerScrub = useRef(false);
+  // Ruler gestures: horizontal drag scrubs; VERTICAL drag zooms around the pointer
+  // (Audacity/Ableton); dragging the range band moves it, its edges resize it.
+  // The mode locks in on the first significant movement.
+  type RulerDrag = {
+    mode: "pending" | "scrub" | "zoom" | "loop-move" | "loop-start" | "loop-end";
+    startX: number;
+    startY: number;
+    anchorSec: number; // time under the pointer at mousedown (zoom anchor)
+    grabOffset: number; // loop-move: pointer offset from range.start
+    startPps: number;
+  };
+  const rulerDrag = useRef<RulerDrag | null>(null);
   const rulerSec = (e: React.MouseEvent) =>
     Math.max(
       0,
@@ -1009,19 +1057,79 @@ export function WaveformTimeline({
         xToSec(e.clientX - e.currentTarget.getBoundingClientRect().left),
       ),
     );
+  const rulerRawSec = (e: React.MouseEvent) =>
+    Math.max(
+      0,
+      xToSec(e.clientX - e.currentTarget.getBoundingClientRect().left),
+    );
   const onRulerDown = (e: React.MouseEvent) => {
-    seek(Math.round(rulerSec(e) * sr));
-    rulerScrub.current = true;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const raw = rulerRawSec(e);
+    let mode: RulerDrag["mode"] = "pending";
+    let grabOffset = 0;
+    if (range) {
+      const x0 = (range.start - scrollSec) * pps;
+      const x1 = (range.end - scrollSec) * pps;
+      if (Math.abs(x - x0) <= 5) mode = "loop-start";
+      else if (Math.abs(x - x1) <= 5) mode = "loop-end";
+      else if (x > x0 && x < x1) {
+        mode = "loop-move";
+        grabOffset = raw - range.start;
+      }
+    }
+    rulerDrag.current = {
+      mode,
+      startX: e.clientX,
+      startY: e.clientY,
+      anchorSec: raw,
+      grabOffset,
+      startPps: pps,
+    };
   };
   const onRulerMove = (e: React.MouseEvent) => {
-    if (!rulerScrub.current) return;
-    setPlayheadSec(rulerSec(e));
-    drawRef.current();
+    const d = rulerDrag.current;
+    if (!d) return;
+    if (d.mode === "pending") {
+      const dx = Math.abs(e.clientX - d.startX);
+      const dy = Math.abs(e.clientY - d.startY);
+      if (dx < 3 && dy < 3) return;
+      d.mode = dy > dx ? "zoom" : "scrub";
+      if (d.mode === "scrub") seekTo(Math.round(rulerSec(e) * sr));
+    }
+    if (d.mode === "scrub") {
+      setPlayheadSec(rulerSec(e));
+      drawRef.current();
+    } else if (d.mode === "zoom") {
+      // Drag up = zoom in, down = out; the time under the pointer stays put.
+      const dy = d.startY - e.clientY;
+      const np = Math.min(MAX_PPS, Math.max(MIN_PPS, d.startPps * Math.exp(dy * 0.012)));
+      setPps(np);
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      setScrollSec(Math.max(0, d.anchorSec - x / np));
+    } else if (d.mode === "loop-move" && range) {
+      const len = range.end - range.start;
+      const start = Math.max(0, snapToGrid(rulerRawSec(e) - d.grabOffset));
+      setRange({ start, end: start + len });
+    } else if (d.mode === "loop-start" && range) {
+      const v = snapToGrid(rulerRawSec(e));
+      if (v < range.end) setRange({ start: Math.max(0, v), end: range.end });
+    } else if (d.mode === "loop-end" && range) {
+      const v = snapToGrid(rulerRawSec(e));
+      if (v > range.start) setRange({ start: range.start, end: v });
+    }
   };
   const onRulerUp = (e: React.MouseEvent) => {
-    if (!rulerScrub.current) return;
-    rulerScrub.current = false;
-    seek(Math.round(rulerSec(e) * sr));
+    const d = rulerDrag.current;
+    rulerDrag.current = null;
+    if (!d) return;
+    if (d.mode === "pending") {
+      // No movement: a plain click seeks (and plants the start point).
+      seekTo(Math.round(rulerSec(e) * sr));
+    } else if (d.mode === "scrub") {
+      seekTo(Math.round(rulerSec(e) * sr));
+    }
   };
 
   const onMouseDown = (e: React.MouseEvent) => {
@@ -1032,8 +1140,22 @@ export function WaveformTimeline({
     const hit = hitTest(x, y);
     const clickedSec = Math.max(0, xToSec(x));
     if (hit) {
-      setSelected(hit.clip.id);
       const id = hit.clip.id;
+      if ((e.shiftKey || e.metaKey) && hit.zone === "body") {
+        // Multi-select: toggle membership; no drag, no seek.
+        setMultiSel((prev) => {
+          const next = new Set(prev);
+          if (selected && selected !== id) next.add(selected);
+          if (next.has(id)) next.delete(id);
+          else next.add(id);
+          return next;
+        });
+        setSelected(id);
+        tick((n) => n + 1);
+        return;
+      }
+      setSelected(id);
+      setMultiSel(new Set());
       if (hit.zone === "trim-start")
         drag.current = { kind: "trim-start", clipId: id };
       else if (hit.zone === "trim-end")
@@ -1045,7 +1167,7 @@ export function WaveformTimeline({
       else {
         // Click on a clip body: move the playhead there (seeking if playing) so the
         // playhead follows your click, then arm a move-drag.
-        seek(Math.round(snapToGrid(clickedSec) * sr));
+        seekTo(Math.round(snapToGrid(clickedSec) * sr));
         drag.current = {
           kind: "move",
           clipId: id,
@@ -1152,13 +1274,13 @@ export function WaveformTimeline({
       if (Math.abs(raw - a) * pps < 3) {
         // No real drag: behave like the old empty-lane click (seek + clear).
         setRange(null);
-        seek(Math.round(snapToGrid(raw) * sr));
+        seekTo(Math.round(snapToGrid(raw) * sr));
       } else {
         const b = snapSec(raw, step);
         const start = Math.min(a, b);
         const end = Math.max(a, b);
         setRange(end > start ? { start, end } : null);
-        seek(Math.round(start * sr)); // Space then plays the selection
+        seekTo(Math.round(start * sr)); // Space then plays the selection
       }
     }
     tick((n) => n + 1);
@@ -1334,6 +1456,16 @@ export function WaveformTimeline({
   };
   const trackOfClip = (id: string) =>
     project?.tracks.find((t) => t.clips.some((c) => c.id === id)) ?? null;
+
+  // A user-initiated seek plants the start point too (internal repositioning
+  // like return-to-start uses `seek` directly).
+  const seekTo = useCallback(
+    (frame: number) => {
+      setStartPointSec(Math.max(0, frame) / sr);
+      seek(frame);
+    },
+    [seek, sr],
+  );
 
   // Bring a timeline position into view (used after paste/duplicate/drop/take; W-06/08).
   const revealSec = useCallback(
@@ -1599,6 +1731,63 @@ export function WaveformTimeline({
     scrollSec,
   ]);
 
+  // Delete the whole selection: multi-select as ONE undoable edit, else the
+  // primary clip (with ripple), else nothing (range delete handles ranges).
+  const deleteSel = useCallback(() => {
+    if (multiSel.size > 1) {
+      api.deleteClips([...multiSel]);
+      setMultiSel(new Set());
+      setSelected(null);
+    } else if (selected) {
+      api.del(selected, ripple);
+      setSelected(null);
+    }
+  }, [multiSel, selected, ripple, api]);
+
+  // Merge (consolidate) the multi-selection into one clip - gains + fades baked.
+  const mergeSel = useCallback(async () => {
+    if (multiSel.size < 2) return;
+    await api.mergeClips([...multiSel]);
+    setMultiSel(new Set());
+    setSelected(null);
+  }, [multiSel, api]);
+
+  // Space/Play past the content end would play instant silence and stop - start
+  // from the start point (or 0) instead, which also answers "what plays after a
+  // clip finished": the same spot you started from.
+  const startPlaySmart = useCallback(() => {
+    const end = contentEndSec();
+    if (playheadSec >= end - 1e-6) {
+      const from = startPointRef.current < end ? startPointRef.current : 0;
+      startPlay(Math.round(from * sr));
+    } else {
+      startPlay();
+    }
+  }, [contentEndSec, playheadSec, sr, startPlay]);
+
+  // On stop (manual or natural end), the cursor returns to the start point so the
+  // next Space replays the same passage (Ableton stop behavior).
+  const wasPlaying = useRef(false);
+  useEffect(() => {
+    if (wasPlaying.current && !playing) {
+      setPlayheadSec(startPointRef.current);
+      drawRef.current();
+    }
+    wasPlaying.current = playing;
+  }, [playing]);
+
+  // Changing the range while loop-playing re-arms the backend loop immediately
+  // (it used to stay on the old region until the next manual seek).
+  const loopArm = useRef<string>("");
+  useEffect(() => {
+    const key = loopOn && range ? `${range.start}:${range.end}` : "";
+    if (playing && loopArm.current !== key && loopOn && range) {
+      seek(Math.round(playheadSec * sr));
+    }
+    loopArm.current = key;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range, loopOn, playing]);
+
   // ---- Keyboard shortcuts (registered once; reads latest via a ref) ----
   const kb = useRef({
     api,
@@ -1607,7 +1796,7 @@ export function WaveformTimeline({
     splitAtPlayhead,
     playing,
     togglePause,
-    startPlay,
+    startPlay: startPlaySmart,
     copySel,
     cutSel,
     pasteAtPlayhead,
@@ -1622,14 +1811,17 @@ export function WaveformTimeline({
     onToggleRecord,
     showShortcuts,
     stopPlay,
-    seek,
-    seekEnd: () => seek(Math.round(contentEndSec() * sr)),
+    seek: seekTo,
+    seekEnd: () => seekTo(Math.round(contentEndSec() * sr)),
     seekBy: (deltaSec: number) =>
-      seek(Math.max(0, Math.round((playheadSec + deltaSec) * sr))),
+      seekTo(Math.max(0, Math.round((playheadSec + deltaSec) * sr))),
     zoomStep,
     hasRange: !!range,
     clearRange: () => setRange(null),
     deleteRangeSel,
+    hasMulti: multiSel.size > 1,
+    deleteSel,
+    mergeSel,
     toggleShortcuts: () => setShowShortcuts((s) => !s),
     toggleSnap: () => setSnapEnabled((s) => !s),
   });
@@ -1640,7 +1832,7 @@ export function WaveformTimeline({
     splitAtPlayhead,
     playing,
     togglePause,
-    startPlay,
+    startPlay: startPlaySmart,
     copySel,
     cutSel,
     pasteAtPlayhead,
@@ -1655,14 +1847,17 @@ export function WaveformTimeline({
     onToggleRecord,
     showShortcuts,
     stopPlay,
-    seek,
-    seekEnd: () => seek(Math.round(contentEndSec() * sr)),
+    seek: seekTo,
+    seekEnd: () => seekTo(Math.round(contentEndSec() * sr)),
     seekBy: (deltaSec: number) =>
-      seek(Math.max(0, Math.round((playheadSec + deltaSec) * sr))),
+      seekTo(Math.max(0, Math.round((playheadSec + deltaSec) * sr))),
     zoomStep,
     hasRange: !!range,
     clearRange: () => setRange(null),
     deleteRangeSel,
+    hasMulti: multiSel.size > 1,
+    deleteSel,
+    mergeSel,
     toggleShortcuts: () => setShowShortcuts((s) => !s),
     toggleSnap: () => setSnapEnabled((s) => !s),
   };
@@ -1702,11 +1897,13 @@ export function WaveformTimeline({
       } else if (mod && key === "d") {
         e.preventDefault();
         k.duplicateSel();
+      } else if (mod && key === "j") {
+        e.preventDefault();
+        k.mergeSel();
       } else if (e.key === "Delete" || e.key === "Backspace") {
-        if (k.selected) {
+        if (k.selected || k.hasMulti) {
           e.preventDefault();
-          k.api.del(k.selected, k.ripple);
-          setSelected(null);
+          k.deleteSel();
         } else if (k.hasRange) {
           e.preventDefault();
           k.deleteRangeSel();
@@ -1752,7 +1949,10 @@ export function WaveformTimeline({
         // then the clip selection. Popovers/overlay consume Escape earlier.
         if (k.playing) k.stopPlay();
         else if (k.hasRange) k.clearRange();
-        else setSelected(null);
+        else {
+          setSelected(null);
+          setMultiSel(new Set());
+        }
       } else if (e.key === " ") {
         e.preventDefault();
         // A rolling take owns Space: stop capture, never start playback into the
@@ -1848,6 +2048,16 @@ export function WaveformTimeline({
             label: "Split into mono channels",
             onClick: () => api.splitChannels(clip.id),
           },
+          ...(multiSel.size > 1
+            ? ([
+                {
+                  label: `Merge ${multiSel.size} clips`,
+                  shortcut: "⌘J",
+                  onClick: mergeSel,
+                },
+                "sep",
+              ] as const)
+            : []),
           {
             label: "Normalize to -1 dB",
             onClick: () => {
@@ -1941,8 +2151,14 @@ export function WaveformTimeline({
       x: e.clientX,
       y: e.clientY,
       items: [
-        { label: "Play from here", onClick: () => startPlay(frame) },
-        { label: "Seek to here", onClick: () => seek(frame) },
+        {
+          label: "Play from here",
+          onClick: () => {
+            setStartPointSec(frame / sr);
+            startPlay(frame);
+          },
+        },
+        { label: "Seek to here", onClick: () => seekTo(frame) },
         "sep",
         { label: "Fit project", shortcut: "F", onClick: fitToWindow },
       ],
@@ -1952,6 +2168,7 @@ export function WaveformTimeline({
   // Timeline quick-play (Audacity): double-click the ruler to play from there.
   const onRulerDouble = (e: React.MouseEvent) => {
     const frame = Math.round(snapToGrid(Math.max(0, rulerSec(e))) * sr);
+    setStartPointSec(frame / sr);
     if (playing) seek(frame);
     else startPlay(frame);
   };
@@ -1965,7 +2182,7 @@ export function WaveformTimeline({
               type="button"
               className="transport play"
               disabled={!outputId || !project || project.tracks.length === 0}
-              onClick={playing ? togglePause : startPlay}
+              onClick={playing ? togglePause : startPlaySmart}
               title={playing ? "Pause / resume (space)" : "Play (space)"}
               aria-label={playing && !paused ? "Pause" : "Play"}
             >
@@ -2721,6 +2938,7 @@ function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
         ["Space", "Play / pause (stops a rolling take)"],
         ["Drag empty lane", "Select a time range (snaps to clip edges)"],
         ["Double-click clip", "Select exactly the clip's range"],
+        ["Shift-click clips", "Multi-select (⌘J merges them)"],
         ["Shift + R", "Start / stop recording"],
         ["Esc", "Stop playback · clear selection"],
         ["Home / End", "Jump to start / end"],

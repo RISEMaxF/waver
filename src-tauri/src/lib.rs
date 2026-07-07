@@ -69,6 +69,8 @@ pub fn run() {
             commands::playback_status,
             commands::playback_levels,
             commands::delete_range,
+            commands::delete_clips,
+            commands::merge_clips,
             commands::autosave_project,
             commands::check_recovery,
             commands::discard_recovery,

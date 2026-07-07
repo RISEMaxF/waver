@@ -46,7 +46,16 @@ export function useTransport(opts: {
         })
         .catch(() => {});
     },
-    [outputId, hasContent, startFrame, sr, onPosition, loop, speed, preservePitch],
+    [
+      outputId,
+      hasContent,
+      startFrame,
+      sr,
+      onPosition,
+      loop,
+      speed,
+      preservePitch,
+    ],
   );
 
   // Seek: move the playhead to `frame`; if currently playing, restart audio from there

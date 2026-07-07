@@ -645,6 +645,98 @@ pub fn delete_range(
     apply_edit(&state, |p| p.delete_range(start, end, ripple).map(|_| ()))
 }
 
+/// Delete several clips as one undoable edit (multi-select delete).
+#[tauri::command]
+pub fn delete_clips(
+    state: State<'_, AudioState>,
+    clip_ids: Vec<String>,
+) -> Result<ProjectView, String> {
+    let ids: Vec<_> = clip_ids
+        .iter()
+        .map(|s| parse_id(s))
+        .collect::<Result<_, _>>()?;
+    apply_edit(&state, |p| p.delete_clips(&ids).map(|_| ()))
+}
+
+/// Merge (consolidate) same-track clips into one: renders their span (clip gains +
+/// fades baked, track state excluded) to a new source WAV in app data, then replaces
+/// them with a single clip - one undoable edit.
+#[tauri::command]
+pub fn merge_clips(
+    app: AppHandle,
+    state: State<'_, AudioState>,
+    clip_ids: Vec<String>,
+) -> Result<ProjectView, String> {
+    let ids: Vec<uuid::Uuid> = clip_ids
+        .iter()
+        .map(|s| parse_id(s))
+        .collect::<Result<_, _>>()?;
+    if ids.len() < 2 {
+        return Err("select at least two clips to merge".into());
+    }
+    // Resolve the shared track + span, and render BEFORE mutating anything.
+    let (project_snapshot, track_id, start, end, name) = {
+        let guard = state.edit.lock().expect("edit mutex poisoned");
+        let p = &guard.project;
+        let track = p
+            .tracks
+            .iter()
+            .find(|t| ids.iter().all(|id| t.clips.iter().any(|c| c.id == *id)))
+            .ok_or("clips to merge must all be on the same track")?;
+        let sel: Vec<_> = track.clips.iter().filter(|c| ids.contains(&c.id)).collect();
+        let start = sel.iter().map(|c| c.timeline_start).min().unwrap_or(0);
+        let end = sel.iter().map(|c| c.timeline_end()).max().unwrap_or(0);
+        let name = format!(
+            "{} (merged)",
+            sel.first().map(|c| c.name.as_str()).unwrap_or("Clip")
+        );
+        (p.clone(), track.id, start, end, name)
+    };
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("recordings");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let scratch = dir.join(format!("merge-{stamp}.wav"));
+    let (channels, frames) =
+        waver_engine::consolidate_track_range(&project_snapshot, track_id, start, end, &scratch)
+            .map_err(|e| e.to_string())?;
+
+    let sample_rate = project_snapshot.sample_rate;
+    apply_edit(&state, move |p| {
+        p.delete_clips(&ids)?;
+        let source = Source::new(scratch.clone(), channels, sample_rate, frames);
+        let source_id = source.id;
+        p.sources.push(source);
+        let track = p
+            .tracks
+            .iter_mut()
+            .find(|t| t.id == track_id)
+            .ok_or(waver_core::edit::EditError::TrackNotFound(track_id))?;
+        let mut clip = waver_core::model::Clip {
+            id: uuid::Uuid::new_v4(),
+            name: name.clone(),
+            source_id,
+            source_channel: None,
+            source_in: 0,
+            source_out: frames,
+            timeline_start: start,
+            gain_db: 0.0,
+            fade_in: Default::default(),
+            fade_out: Default::default(),
+        };
+        clip.name = name.clone();
+        track.clips.push(clip);
+        track.clips.sort_by_key(|c| c.timeline_start);
+        Ok(())
+    })
+}
+
 /// Snap a source-frame position to the nearest zero crossing (±~40 ms window at
 /// 48 kHz) so splits and trims land click-free (supports FR-2.3 clean output).
 #[tauri::command]

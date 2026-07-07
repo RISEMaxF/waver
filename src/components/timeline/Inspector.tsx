@@ -1,12 +1,7 @@
 import { useState } from "react";
 import type { ClipView, FadeCurve, ProjectView } from "../../audio/project";
 import type { ProjectApi } from "../../audio/useProject";
-import {
-  CURVE_NAMES,
-  fmtGainDb,
-  fmtTimecode,
-  parseTimecode,
-} from "./renderer";
+import { CURVE_NAMES, fmtGainDb, fmtTimecode, parseTimecode } from "./renderer";
 
 /** Editable clip start time (h:mm:ss.mmm or plain seconds), committing on blur/Enter
  *  via the same move op as dragging (W-27). */

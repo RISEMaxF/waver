@@ -94,6 +94,69 @@ fn f32_to_i24(s: f32) -> i32 {
     (s.clamp(-1.0, 1.0) * 8_388_607.0).round() as i32
 }
 
+/// Consolidate: render ONE track's `[start, end)` (clip gains + fades baked, track
+/// gain/mute/solo excluded) to a new WAV at the project rate. Returns
+/// (channels, frames) of the written file. Used by merge-clips.
+pub fn consolidate_track_range(
+    project: &Project,
+    track_id: uuid::Uuid,
+    start: u64,
+    end: u64,
+    out_path: impl AsRef<Path>,
+) -> Result<(u16, u64), EngineError> {
+    if end <= start {
+        return Err(EngineError::Backend("empty consolidate range".into()));
+    }
+    // Solo the target track in a scratch copy; neutralize track-level state so the
+    // baked audio is the clips as heard at unity track gain.
+    let mut solo = project.clone();
+    solo.tracks.retain(|t| t.id == track_id);
+    let Some(track) = solo.tracks.first_mut() else {
+        return Err(EngineError::Backend("no such track".into()));
+    };
+    track.muted = false;
+    track.soloed = false;
+    track.gain_db = 0.0;
+    // Preserve the widest channel count among the clips' sources (mono stays mono).
+    let channels = solo
+        .tracks
+        .first()
+        .map(|t| {
+            t.clips
+                .iter()
+                .filter_map(|c| {
+                    solo.sources.iter().find(|s| s.id == c.source_id).map(|s| {
+                        if c.source_channel.is_some() {
+                            1
+                        } else {
+                            s.channels
+                        }
+                    })
+                })
+                .max()
+                .unwrap_or(1)
+        })
+        .unwrap_or(1)
+        .max(1);
+    let mixer = Mixer::new(&solo, channels)?;
+    let mixed = render_range(&mixer, start, end);
+    let spec = hound::WavSpec {
+        channels,
+        sample_rate: project.sample_rate,
+        bits_per_sample: 32,
+        sample_format: hound::SampleFormat::Float,
+    };
+    let mut w = hound::WavWriter::create(out_path.as_ref(), spec)
+        .map_err(|e| EngineError::Io(format!("create wav: {e}")))?;
+    for &s in &mixed {
+        w.write_sample(s)
+            .map_err(|e| EngineError::Io(format!("write: {e}")))?;
+    }
+    w.finalize()
+        .map_err(|e| EngineError::Io(format!("finalize: {e}")))?;
+    Ok((channels, end - start))
+}
+
 /// Render + encode the project to `out_path` (spec FR-7.2).
 pub fn export_project(
     project: &Project,

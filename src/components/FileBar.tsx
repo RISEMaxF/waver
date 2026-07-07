@@ -13,6 +13,7 @@ import {
   type ExportFormat,
 } from "../audio/files";
 import type { ProjectView } from "../audio/project";
+import { fmtTimecode } from "./timeline/renderer";
 import {
   IconExport,
   IconImport,
@@ -216,7 +217,9 @@ export function FileBar({
           className={`tbtn icon-only${busyAction === "Save As" ? " working" : ""}`}
           disabled={busy}
           aria-label="Save As"
-          title={busyAction === "Save As" ? "Saving…" : "Save to a new file (⇧⌘S)"}
+          title={
+            busyAction === "Save As" ? "Saving…" : "Save to a new file (⇧⌘S)"
+          }
           onClick={doSaveAs}
         >
           <IconSaveAs />
@@ -335,7 +338,11 @@ export function FileBar({
                   }}
                 >
                   <IconExport />
-                  <span>Export selection</span>
+                  <span>
+                    Export selection ({fmtTimecode(exportRange.start / sampleRate)}
+                    {" - "}
+                    {fmtTimecode(exportRange.end / sampleRate)})
+                  </span>
                 </button>
               )}
               <button

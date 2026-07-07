@@ -54,6 +54,10 @@ export const trimClipStart = (clipId: string, frame: number) =>
   invoke<ProjectView>("trim_clip_start", { clipId, frame });
 export const moveClip = (clipId: string, trackId: string, frame: number) =>
   invoke<ProjectView>("move_clip", { clipId, trackId, frame });
+export const deleteClips = (clipIds: string[]) =>
+  invoke<ProjectView>("delete_clips", { clipIds });
+export const mergeClips = (clipIds: string[]) =>
+  invoke<ProjectView>("merge_clips", { clipIds });
 export const deleteRange = (start: number, end: number, ripple: boolean) =>
   invoke<ProjectView>("delete_range", { start, end, ripple });
 export const deleteClip = (clipId: string, ripple: boolean) =>
