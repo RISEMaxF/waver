@@ -28,6 +28,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install macOS build tools (autotools for the Opus sys-crate)
+        if: startsWith(matrix.platform, 'macos')
+        run: brew install autoconf automake libtool
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -60,6 +64,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install macOS build tools (autotools for the Opus sys-crate)
+        run: brew install autoconf automake libtool
       - uses: actions/setup-node@v4
         with:
           node-version: 20

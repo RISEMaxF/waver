@@ -38,6 +38,10 @@ jobs:
             libasound2-dev \
             libjack-jackd2-dev
 
+      - name: Install macOS build tools (autotools for the Opus sys-crate)
+        if: matrix.os == 'macos-latest'
+        run: brew install autoconf automake libtool
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
