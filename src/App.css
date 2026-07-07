@@ -1412,13 +1412,22 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
 
 .track-head.collapsed .track-toggles {
   flex-shrink: 0;
-  gap: 3px;
+  gap: 2px;
 }
 
-/* Compact the R/M/S buttons in the folded row so the name keeps readable width. */
+/* Compact the folded row so the (wide, mono) name keeps readable width: smaller
+   label + 22px chips buys ~8.5 characters before the ellipsis. */
+.track-head.collapsed .track-name {
+  font-size: var(--font-size-xs);
+}
+
 .track-head.collapsed .ts-btn {
-  width: 24px;
+  width: 22px;
   height: 20px;
+}
+
+.track-head.collapsed .ts-letter {
+  font-size: 10px;
 }
 
 .track-toggles {
