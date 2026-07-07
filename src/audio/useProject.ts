@@ -59,6 +59,11 @@ export function useProject() {
     deleteRange: (start: number, end: number, ripple: boolean) =>
       run(api.deleteRange(start, end, ripple)),
     deleteClips: (ids: string[]) => run(api.deleteClips(ids)),
+    addMarker: (frame: number, name: string) => run(api.addMarker(frame, name)),
+    moveMarker: (id: string, frame: number) => run(api.moveMarker(id, frame)),
+    renameMarker: (id: string, name: string) =>
+      run(api.renameMarker(id, name)),
+    deleteMarker: (id: string) => run(api.deleteMarker(id)),
     mergeClips: (ids: string[]) => run(api.mergeClips(ids)),
     splitChannels: (id: string) => run(api.splitClipChannels(id)),
     setClipGain: (id: string, g: number) => run(api.setClipGain(id, g)),

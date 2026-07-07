@@ -45,7 +45,7 @@ export async function importToPoolDialog(): Promise<number> {
   return n;
 }
 
-export type ExportFormat = "wav" | "flac" | "ogg";
+export type ExportFormat = "wav" | "flac" | "ogg" | "mp3" | "opus";
 export type ExportBitDepth = "int16" | "int24" | "float32";
 
 /** FR-7.2/7.3 — pick a destination and export/mixdown. Returns the path, or null. */

@@ -37,12 +37,19 @@ export interface SourceView {
   path: string;
 }
 
+export interface MarkerView {
+  id: string;
+  name: string;
+  frame: number;
+}
+
 export interface ProjectView {
   sample_rate: number;
   can_undo: boolean;
   can_redo: boolean;
   tracks: TrackView[];
   sources: SourceView[];
+  markers: MarkerView[];
 }
 
 export const getProject = () => invoke<ProjectView>("get_project");
@@ -54,6 +61,14 @@ export const trimClipStart = (clipId: string, frame: number) =>
   invoke<ProjectView>("trim_clip_start", { clipId, frame });
 export const moveClip = (clipId: string, trackId: string, frame: number) =>
   invoke<ProjectView>("move_clip", { clipId, trackId, frame });
+export const addMarker = (frame: number, name: string) =>
+  invoke<ProjectView>("add_marker", { frame, name });
+export const moveMarker = (markerId: string, frame: number) =>
+  invoke<ProjectView>("move_marker", { markerId, frame });
+export const renameMarker = (markerId: string, name: string) =>
+  invoke<ProjectView>("rename_marker", { markerId, name });
+export const deleteMarker = (markerId: string) =>
+  invoke<ProjectView>("delete_marker", { markerId });
 export const deleteClips = (clipIds: string[]) =>
   invoke<ProjectView>("delete_clips", { clipIds });
 export const mergeClips = (clipIds: string[]) =>

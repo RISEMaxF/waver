@@ -140,6 +140,10 @@ body {
   animation: pulse 1s ease-in-out infinite;
 }
 
+.tbtn.tbtn-narrow {
+  width: 18px;
+}
+
 .tbtn.sm {
   height: 26px;
   padding: 0 var(--space-2);
@@ -1841,6 +1845,21 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   line-height: 1.4;
   pointer-events: none;
   white-space: pre-line;
+}
+
+/* Inline marker rename input, floated over the ruler. */
+.marker-edit {
+  position: absolute;
+  top: 2px;
+  z-index: 10;
+  width: 9rem;
+  height: 20px;
+  padding: 0 0.3rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-accent);
+  background: var(--bg);
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
 }
 
 /* Panel resize handles: thin col-resize strips on panel boundaries. */

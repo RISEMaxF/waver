@@ -14,6 +14,23 @@ import {
 } from "../audio/files";
 import type { ProjectView } from "../audio/project";
 import { fmtTimecode } from "./timeline/renderer";
+import { ContextMenu, type MenuState } from "./timeline/ContextMenu";
+import { loadProjectFromPath } from "../audio/files";
+import { IconChevronDown } from "./icons";
+
+const RECENT_KEY = "waver-recent";
+const readRecents = (): string[] => {
+  try {
+    const v = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+    return Array.isArray(v) ? v.filter((p) => typeof p === "string") : [];
+  } catch {
+    return [];
+  }
+};
+const pushRecent = (path: string) => {
+  const list = [path, ...readRecents().filter((p) => p !== path)].slice(0, 8);
+  localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+};
 import {
   IconExport,
   IconImport,
@@ -59,6 +76,7 @@ export function FileBar({
   const [busy, setBusy] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [recentMenu, setRecentMenu] = useState<MenuState | null>(null);
   const exportRef = useRef<HTMLDivElement>(null);
   const exportBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -108,12 +126,14 @@ export function FileBar({
     await run("Save", async () => {
       if (projectPath) {
         await saveProjectToPath(projectPath);
+        pushRecent(projectPath);
         markClean();
         setMsg(`Saved ${basename(projectPath)}`);
       } else {
         const p = await saveProjectDialog();
         if (p) {
           setProjectPath(p);
+          pushRecent(p);
           markClean();
           setMsg(`Saved ${basename(p)}`);
         }
@@ -127,12 +147,28 @@ export function FileBar({
       const p = await saveProjectDialog();
       if (p) {
         setProjectPath(p);
+        pushRecent(p);
         markClean();
         setMsg(`Saved ${basename(p)}`);
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [markClean]);
+
+  const openRecent = (path: string) =>
+    run("Open", async () => {
+      if (!(await okToDiscard(dirty, "open another project"))) return;
+      const r = await loadProjectFromPath(path);
+      setProjectPath(r.path);
+      pushRecent(r.path);
+      markClean();
+      onChanged();
+      setMsg(
+        r.missing_sources.length
+          ? `Opened ${basename(r.path)} - ${r.missing_sources.length} source file(s) missing`
+          : `Opened ${basename(r.path)}`,
+      );
+    });
 
   const saveKeys = useRef({ doSave, doSaveAs, busy });
   saveKeys.current = { doSave, doSaveAs, busy };
@@ -183,6 +219,7 @@ export function FileBar({
               const r = await loadProjectDialog();
               if (r) {
                 setProjectPath(r.path);
+                pushRecent(r.path);
                 markClean();
                 onChanged();
                 setMsg(
@@ -195,6 +232,37 @@ export function FileBar({
           }
         >
           <IconOpen />
+        </button>
+        <button
+          type="button"
+          className="tbtn icon-only tbtn-narrow"
+          aria-label="Open recent project"
+          aria-haspopup="menu"
+          title="Open recent"
+          disabled={busy}
+          onClick={(e) => {
+            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            const recents = readRecents();
+            setRecentMenu({
+              x: r.left,
+              y: r.bottom + 4,
+              items: recents.length
+                ? [
+                    ...recents.map((p) => ({
+                      label: basename(p),
+                      onClick: () => openRecent(p),
+                    })),
+                    "sep" as const,
+                    {
+                      label: "Clear recent",
+                      onClick: () => localStorage.removeItem(RECENT_KEY),
+                    },
+                  ]
+                : [{ label: "No recent projects", disabled: true, onClick: () => {} }],
+            });
+          }}
+        >
+          <IconChevronDown size={12} />
         </button>
         <button
           type="button"
@@ -301,7 +369,9 @@ export function FileBar({
                 >
                   <option value="wav">WAV</option>
                   <option value="flac">FLAC</option>
-                  <option value="ogg">OGG</option>
+                  <option value="mp3">MP3</option>
+                  <option value="ogg">OGG (Vorbis)</option>
+                  <option value="opus">Opus</option>
                 </select>
               </label>
               <label className="export-row">
@@ -311,7 +381,9 @@ export function FileBar({
                   onChange={(e) =>
                     setBitDepth(e.target.value as ExportBitDepth)
                   }
-                  disabled={format === "ogg"}
+                  disabled={
+                    format === "ogg" || format === "mp3" || format === "opus"
+                  }
                 >
                   <option value="int16">16-bit</option>
                   <option value="int24">24-bit</option>
@@ -380,6 +452,9 @@ export function FileBar({
         <span className="filebar-msg" role="status" aria-live="polite">
           {msg}
         </span>
+      )}
+      {recentMenu && (
+        <ContextMenu menu={recentMenu} onClose={() => setRecentMenu(null)} />
       )}
     </div>
   );

@@ -182,6 +182,17 @@ export function WaveformTimeline({
   const [multiSel, setMultiSel] = useState<Set<string>>(new Set());
   const [ripple, setRipple] = useState(false);
   const [cursor, setCursor] = useState("default");
+  // Hover bubble: clip name + length near the pointer (small clips are otherwise
+  // unidentifiable). Shows after a short dwell on the same clip.
+  const [hoverTip, setHoverTip] = useState<{
+    text: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const hoverRef = useRef<{ id: string | null; timer: number }>({
+    id: null,
+    timer: 0,
+  });
   // null = unset (auto-arm picks a track); "none" = the user disarmed on purpose (W-07).
   const [armedTrackId, setArmedTrackId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -214,6 +225,17 @@ export function WaveformTimeline({
     setTbWide(el.clientWidth >= 980);
     return () => ro.disconnect();
   }, []);
+
+  // Marker rename overlay (inline input over the ruler) + live marker drag.
+  const [markerEdit, setMarkerEdit] = useState<{
+    id: string;
+    name: string;
+    x: number;
+  } | null>(null);
+  const [markerDrag, setMarkerDrag] = useState<{
+    id: string;
+    sec: number;
+  } | null>(null);
 
   // Start point (second playhead, hollow marker): where Space/Play begins. Set by
   // every explicit user seek; playback returns here on stop or natural end, so
@@ -301,10 +323,12 @@ export function WaveformTimeline({
     [snapEnabled, beatGrid, stepSec],
   );
 
+  const hasAudio =
+    !!project && project.tracks.some((t) => t.clips.length > 0);
   const { playing, paused, startPlay, togglePause, stopPlay, seek } =
     useTransport({
       outputId,
-      hasContent: !!project && project.tracks.length > 0,
+      hasContent: hasAudio,
       startFrame: Math.round(playheadSec * sr),
       sr,
       onPosition: setPlayheadSec,
@@ -505,6 +529,7 @@ export function WaveformTimeline({
         ? Math.round(sec / stepSec) * stepSec
         : Math.round(sec / step) * step;
       const candidates: number[] = [playheadSec, gridCandidate];
+      for (const m of project?.markers ?? []) candidates.push(m.frame / sr);
       const dragged =
         drag.current && "clipId" in drag.current ? drag.current.clipId : null;
       for (const t of project?.tracks ?? []) {
@@ -595,6 +620,27 @@ export function WaveformTimeline({
                 rx.fillText(String(bar + 1), Math.round(x) + 3, 12);
             }
           }
+        }
+        // Marker flags (labels): amber pins with names on the ruler.
+        for (const m of project?.markers ?? []) {
+          const sec =
+            markerDrag && markerDrag.id === m.id
+              ? markerDrag.sec
+              : m.frame / sr;
+          const mx = (sec - scrollSec) * pps;
+          if (mx < -40 || mx > width + 40) continue;
+          rx.fillStyle = th.snap;
+          rx.beginPath();
+          rx.moveTo(mx, RULER_HEIGHT - 6);
+          rx.lineTo(mx - 4, RULER_HEIGHT - 12);
+          rx.lineTo(mx - 4, RULER_HEIGHT - 20);
+          rx.lineTo(mx + 4, RULER_HEIGHT - 20);
+          rx.lineTo(mx + 4, RULER_HEIGHT - 12);
+          rx.closePath();
+          rx.fill();
+          rx.fillStyle = th.snap;
+          rx.font = th.smallFont;
+          rx.fillText(m.name, mx + 6, RULER_HEIGHT - 13);
         }
         // Range/loop band on the ruler: draggable body + edge grips (the ruler is
         // the loop region's home, Ableton-style).
@@ -930,6 +976,26 @@ export function WaveformTimeline({
       }
     }
 
+    // Marker lines through the lanes (faint, dashed).
+    if (project?.markers.length) {
+      ctx.save();
+      ctx.strokeStyle = th.snap;
+      ctx.globalAlpha = 0.3;
+      ctx.setLineDash([3, 4]);
+      ctx.lineWidth = 1;
+      for (const m of project.markers) {
+        const sec =
+          markerDrag && markerDrag.id === m.id ? markerDrag.sec : m.frame / sr;
+        const mx = Math.round((sec - scrollSec) * pps) + 0.5;
+        if (mx < 0 || mx > width) continue;
+        ctx.beginPath();
+        ctx.moveTo(mx, 0);
+        ctx.lineTo(mx, total);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     // Time-range selection overlay: accent tint + hard edges, over the clips so
     // it reads on filled lanes, under the playhead.
     if (range) {
@@ -984,6 +1050,7 @@ export function WaveformTimeline({
     startPointSec,
     loopOn,
     multiSel,
+    markerDrag,
   ]);
 
   drawRef.current = draw;
@@ -1042,7 +1109,15 @@ export function WaveformTimeline({
   // (Audacity/Ableton); dragging the range band moves it, its edges resize it.
   // The mode locks in on the first significant movement.
   type RulerDrag = {
-    mode: "pending" | "scrub" | "zoom" | "loop-move" | "loop-start" | "loop-end";
+    mode:
+      | "pending"
+      | "scrub"
+      | "zoom"
+      | "loop-move"
+      | "loop-start"
+      | "loop-end"
+      | "marker";
+    markerId?: string;
     startX: number;
     startY: number;
     anchorSec: number; // time under the pointer at mousedown (zoom anchor)
@@ -1068,7 +1143,16 @@ export function WaveformTimeline({
     const raw = rulerRawSec(e);
     let mode: RulerDrag["mode"] = "pending";
     let grabOffset = 0;
-    if (range) {
+    let markerId: string | undefined;
+    for (const m of project?.markers ?? []) {
+      const mx = (m.frame / sr - scrollSec) * pps;
+      if (Math.abs(x - mx) <= 6) {
+        mode = "marker";
+        markerId = m.id;
+        break;
+      }
+    }
+    if (mode === "pending" && range) {
       const x0 = (range.start - scrollSec) * pps;
       const x1 = (range.end - scrollSec) * pps;
       if (Math.abs(x - x0) <= 5) mode = "loop-start";
@@ -1080,6 +1164,7 @@ export function WaveformTimeline({
     }
     rulerDrag.current = {
       mode,
+      markerId,
       startX: e.clientX,
       startY: e.clientY,
       anchorSec: raw,
@@ -1108,6 +1193,8 @@ export function WaveformTimeline({
       const rect = e.currentTarget.getBoundingClientRect();
       const x = e.clientX - rect.left;
       setScrollSec(Math.max(0, d.anchorSec - x / np));
+    } else if (d.mode === "marker" && d.markerId) {
+      setMarkerDrag({ id: d.markerId, sec: snapToGrid(rulerRawSec(e)) });
     } else if (d.mode === "loop-move" && range) {
       const len = range.end - range.start;
       const start = Math.max(0, snapToGrid(rulerRawSec(e) - d.grabOffset));
@@ -1129,6 +1216,10 @@ export function WaveformTimeline({
       seekTo(Math.round(rulerSec(e) * sr));
     } else if (d.mode === "scrub") {
       seekTo(Math.round(rulerSec(e) * sr));
+    } else if (d.mode === "marker" && d.markerId) {
+      const sec = markerDrag?.sec ?? rulerRawSec(e);
+      setMarkerDrag(null);
+      api.moveMarker(d.markerId, Math.round(Math.max(0, sec) * sr));
     }
   };
 
@@ -1191,6 +1282,29 @@ export function WaveformTimeline({
     const rect = canvasRef.current!.getBoundingClientRect();
     mouse.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     altBypass.current = e.altKey; // hold Alt while dragging to bypass snap
+    // Clip-name hover bubble (only while not dragging).
+    if (!drag.current) {
+      const h = hitTest(mouse.current.x, mouse.current.y);
+      const hid = h?.clip.id ?? null;
+      if (hid !== hoverRef.current.id) {
+        hoverRef.current.id = hid;
+        clearTimeout(hoverRef.current.timer);
+        setHoverTip(null);
+        if (h) {
+          const cx = e.clientX;
+          const cy = e.clientY;
+          hoverRef.current.timer = window.setTimeout(() => {
+            setHoverTip({
+              text: `${h.clip.name} - ${fmtTimecode(clipLen(h.clip) / sr)}`,
+              x: cx + 12,
+              y: cy + 14,
+            });
+          }, 350);
+        }
+      }
+    } else if (hoverTip) {
+      setHoverTip(null);
+    }
     if (drag.current) {
       if (drag.current.kind === "range") {
         const a = drag.current.anchorSec;
@@ -1216,6 +1330,9 @@ export function WaveformTimeline({
   };
 
   const onMouseUp = () => {
+    clearTimeout(hoverRef.current.timer);
+    setHoverTip(null);
+    hoverRef.current.id = null;
     const d = drag.current;
     drag.current = null;
     snapLine.current = null;
@@ -1757,13 +1874,18 @@ export function WaveformTimeline({
   // clip finished": the same spot you started from.
   const startPlaySmart = useCallback(() => {
     const end = contentEndSec();
+    if (end <= 0) {
+      onNotice("Nothing to play yet - record or import audio first.");
+      return;
+    }
     if (playheadSec >= end - 1e-6) {
       const from = startPointRef.current < end ? startPointRef.current : 0;
       startPlay(Math.round(from * sr));
     } else {
       startPlay();
     }
-  }, [contentEndSec, playheadSec, sr, startPlay]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contentEndSec, playheadSec, sr, startPlay, onNotice]);
 
   // On stop (manual or natural end), the cursor returns to the start point so the
   // next Space replays the same passage (Ableton stop behavior).
@@ -1822,6 +1944,11 @@ export function WaveformTimeline({
     hasMulti: multiSel.size > 1,
     deleteSel,
     mergeSel,
+    addMarkerAtPlayhead: () =>
+      api.addMarker(
+        Math.round(playheadSec * sr),
+        `M${(project?.markers.length ?? 0) + 1}`,
+      ),
     toggleShortcuts: () => setShowShortcuts((s) => !s),
     toggleSnap: () => setSnapEnabled((s) => !s),
   });
@@ -1858,6 +1985,11 @@ export function WaveformTimeline({
     hasMulti: multiSel.size > 1,
     deleteSel,
     mergeSel,
+    addMarkerAtPlayhead: () =>
+      api.addMarker(
+        Math.round(playheadSec * sr),
+        `M${(project?.markers.length ?? 0) + 1}`,
+      ),
     toggleShortcuts: () => setShowShortcuts((s) => !s),
     toggleSnap: () => setSnapEnabled((s) => !s),
   };
@@ -1933,6 +2065,8 @@ export function WaveformTimeline({
         k.armSelected();
       } else if (key === "s" && !mod && !e.shiftKey) {
         k.splitAtPlayhead();
+      } else if (key === "m" && !mod) {
+        k.addMarkerAtPlayhead();
       } else if (key === "n" && !mod) {
         k.toggleSnap();
       } else if (key === "f" && !mod) {
@@ -2146,6 +2280,39 @@ export function WaveformTimeline({
 
   const onRulerContext = (e: React.MouseEvent) => {
     e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const hitMarker = (project?.markers ?? []).find(
+      (m) => Math.abs(x - (m.frame / sr - scrollSec) * pps) <= 6,
+    );
+    if (hitMarker) {
+      setCtxMenu({
+        x: e.clientX,
+        y: e.clientY,
+        items: [
+          {
+            label: `Rename "${hitMarker.name}"...`,
+            onClick: () =>
+              setMarkerEdit({
+                id: hitMarker.id,
+                name: hitMarker.name,
+                x: (hitMarker.frame / sr - scrollSec) * pps,
+              }),
+          },
+          {
+            label: "Seek to marker",
+            onClick: () => seekTo(hitMarker.frame),
+          },
+          "sep",
+          {
+            label: "Delete marker",
+            danger: true,
+            onClick: () => api.deleteMarker(hitMarker.id),
+          },
+        ],
+      });
+      return;
+    }
     const frame = Math.round(snapToGrid(Math.max(0, rulerSec(e))) * sr);
     setCtxMenu({
       x: e.clientX,
@@ -2159,6 +2326,12 @@ export function WaveformTimeline({
           },
         },
         { label: "Seek to here", onClick: () => seekTo(frame) },
+        {
+          label: "Add marker here",
+          shortcut: "⇧M",
+          onClick: () =>
+            api.addMarker(frame, `M${(project?.markers.length ?? 0) + 1}`),
+        },
         "sep",
         { label: "Fit project", shortcut: "F", onClick: fitToWindow },
       ],
@@ -2734,7 +2907,29 @@ export function WaveformTimeline({
       <div className="wave-body">
         {/* Sticky ruler row: a fixed spacer over the track headers + the ruler canvas,
             outside the vertical scroll so the time/bar labels stay visible. */}
-        <div className="wave-ruler-row">
+        <div className="wave-ruler-row" style={{ position: "relative" }}>
+          {markerEdit && (
+            <input
+              className="marker-edit"
+              style={{ left: gutterW + 5 + markerEdit.x }}
+              autoFocus
+              defaultValue={markerEdit.name}
+              aria-label="Marker name"
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                if (v && v !== markerEdit.name)
+                  api.renameMarker(markerEdit.id, v);
+                setMarkerEdit(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+                if (e.key === "Escape") {
+                  e.stopPropagation();
+                  setMarkerEdit(null);
+                }
+              }}
+            />
+          )}
           <div className="wave-ruler-spacer" style={{ width: gutterW }} />
           <div
             className="panel-resize gutter-resize"
@@ -2823,6 +3018,15 @@ export function WaveformTimeline({
         </div>
       </div>
       <Inspector project={project} selected={selected} api={api} sr={sr} />
+      {hoverTip && (
+        <div
+          className="app-tooltip"
+          style={{ left: hoverTip.x, top: hoverTip.y }}
+          role="tooltip"
+        >
+          {hoverTip.text}
+        </div>
+      )}
       {ctxMenu && (
         <ContextMenu menu={ctxMenu} onClose={() => setCtxMenu(null)} />
       )}
@@ -2939,6 +3143,7 @@ function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
         ["Drag empty lane", "Select a time range (snaps to clip edges)"],
         ["Double-click clip", "Select exactly the clip's range"],
         ["Shift-click clips", "Multi-select (⌘J merges them)"],
+        ["M", "Add a marker at the playhead"],
         ["Shift + R", "Start / stop recording"],
         ["Esc", "Stop playback · clear selection"],
         ["Home / End", "Jump to start / end"],

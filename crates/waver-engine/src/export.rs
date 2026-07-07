@@ -21,6 +21,8 @@ const MAX_EXPORT_FRAMES: u64 = 48_000 * 3600 * 24;
 /// Output container / codec.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportFormat {
+    Mp3,
+    Opus,
     Wav,
     Flac,
     Ogg,
@@ -201,6 +203,8 @@ pub fn export_project(
             write_flac(&mixed, channels, opts.sample_rate, bits, out_path.as_ref())
         }
         ExportFormat::Ogg => write_ogg(&mixed, channels, opts.sample_rate, out_path.as_ref()),
+        ExportFormat::Mp3 => write_mp3(&mixed, channels, opts.sample_rate, out_path.as_ref()),
+        ExportFormat::Opus => write_opus(&mixed, channels, opts.sample_rate, out_path.as_ref()),
     }
 }
 
@@ -281,10 +285,156 @@ fn write_ogg(
     sample_rate: u32,
     path: &Path,
 ) -> Result<(), EngineError> {
-    let _ = (mixed, channels, sample_rate, path);
-    Err(EngineError::UnsupportedConfig(
-        "OGG export not yet wired".into(),
-    ))
+    use std::num::{NonZeroU32, NonZeroU8};
+    let ch = channels.clamp(1, 2) as usize;
+    let be = |e: vorbis_rs::VorbisError| EngineError::Backend(format!("vorbis: {e}"));
+    let file =
+        std::fs::File::create(path).map_err(|e| EngineError::Io(format!("create ogg: {e}")))?;
+    let mut enc = vorbis_rs::VorbisEncoderBuilder::new(
+        NonZeroU32::new(sample_rate)
+            .ok_or_else(|| EngineError::Backend("zero sample rate".into()))?,
+        NonZeroU8::new(ch as u8).expect("channels clamped >= 1"),
+        std::io::BufWriter::new(file),
+    )
+    .map_err(be)?
+    .build()
+    .map_err(be)?;
+    let frames = mixed.len() / ch;
+    let mut planar: Vec<Vec<f32>> = vec![Vec::with_capacity(frames); ch];
+    for f in 0..frames {
+        for (c, chan) in planar.iter_mut().enumerate() {
+            chan.push(mixed[f * ch + c]);
+        }
+    }
+    enc.encode_audio_block(&planar).map_err(be)?;
+    enc.finish().map_err(be)?;
+    Ok(())
+}
+
+/// MP3 via LAME (192 kbps CBR, best quality preset).
+fn write_mp3(
+    mixed: &[f32],
+    channels: u16,
+    sample_rate: u32,
+    path: &Path,
+) -> Result<(), EngineError> {
+    use mp3lame_encoder::{Bitrate, Builder, FlushNoGap, InterleavedPcm, MonoPcm, Quality};
+    let ch = channels.clamp(1, 2);
+    let be = |m: String| EngineError::Backend(m);
+    let mut b = Builder::new().ok_or_else(|| EngineError::Backend("lame init failed".into()))?;
+    b.set_num_channels(ch as u8)
+        .map_err(|e| be(format!("lame channels: {e}")))?;
+    b.set_sample_rate(sample_rate)
+        .map_err(|e| be(format!("lame rate: {e}")))?;
+    b.set_brate(Bitrate::Kbps192)
+        .map_err(|e| be(format!("lame bitrate: {e}")))?;
+    b.set_quality(Quality::Best)
+        .map_err(|e| be(format!("lame quality: {e}")))?;
+    let mut enc = b.build().map_err(|e| be(format!("lame build: {e}")))?;
+    let pcm: Vec<i16> = mixed.iter().map(|&s| f32_to_i16(s)).collect();
+    let nframes = pcm.len() / ch as usize;
+    let mut out: Vec<u8> = Vec::new();
+    out.reserve(mp3lame_encoder::max_required_buffer_size(nframes));
+    let n = if ch == 1 {
+        enc.encode(MonoPcm(&pcm), out.spare_capacity_mut())
+            .map_err(|e| be(format!("lame encode: {e}")))?
+    } else {
+        enc.encode(InterleavedPcm(&pcm), out.spare_capacity_mut())
+            .map_err(|e| be(format!("lame encode: {e}")))?
+    };
+    // SAFETY: encode() wrote exactly n bytes into the spare capacity.
+    unsafe { out.set_len(n) };
+    let mut tail: Vec<u8> = Vec::new();
+    tail.reserve(7200);
+    let n2 = enc
+        .flush::<FlushNoGap>(tail.spare_capacity_mut())
+        .map_err(|e| be(format!("lame flush: {e}")))?;
+    // SAFETY: flush() wrote exactly n2 bytes into the spare capacity.
+    unsafe { tail.set_len(n2) };
+    out.extend_from_slice(&tail);
+    std::fs::write(path, &out).map_err(|e| EngineError::Io(format!("write mp3: {e}")))?;
+    Ok(())
+}
+
+/// Opus in an Ogg container (48 kHz per the Opus spec; 20 ms frames).
+fn write_opus(
+    mixed: &[f32],
+    channels: u16,
+    sample_rate: u32,
+    path: &Path,
+) -> Result<(), EngineError> {
+    use audiopus::coder::Encoder;
+    use audiopus::{Application, Channels, SampleRate};
+    let ch = channels.clamp(1, 2) as usize;
+    let data: Vec<f32> = if sample_rate != 48_000 {
+        resample_interleaved(mixed, ch, sample_rate, 48_000)
+    } else {
+        mixed.to_vec()
+    };
+    let mut enc = Encoder::new(
+        SampleRate::Hz48000,
+        if ch == 1 {
+            Channels::Mono
+        } else {
+            Channels::Stereo
+        },
+        Application::Audio,
+    )
+    .map_err(|e| EngineError::Backend(format!("opus init: {e}")))?;
+    let preskip: u16 = enc.lookahead().map(|v| v as u16).unwrap_or(312);
+    let io = |e: std::io::Error| EngineError::Io(format!("write opus: {e}"));
+    let file = std::fs::File::create(path).map_err(io)?;
+    let mut pw = ogg::PacketWriter::new(std::io::BufWriter::new(file));
+    let serial: u32 = 0x5741_5652; // "WAVR"
+    let mut head = Vec::with_capacity(19);
+    head.extend_from_slice(b"OpusHead");
+    head.push(1); // version
+    head.push(ch as u8);
+    head.extend_from_slice(&preskip.to_le_bytes());
+    head.extend_from_slice(&48_000u32.to_le_bytes());
+    head.extend_from_slice(&0i16.to_le_bytes()); // output gain
+    head.push(0); // channel mapping family
+    pw.write_packet(head, serial, ogg::PacketWriteEndInfo::EndPage, 0)
+        .map_err(io)?;
+    let vendor = b"waver";
+    let mut tags = Vec::new();
+    tags.extend_from_slice(b"OpusTags");
+    tags.extend_from_slice(&(vendor.len() as u32).to_le_bytes());
+    tags.extend_from_slice(vendor);
+    tags.extend_from_slice(&0u32.to_le_bytes()); // no user comments
+    pw.write_packet(tags, serial, ogg::PacketWriteEndInfo::EndPage, 0)
+        .map_err(io)?;
+    const FRAME: usize = 960; // 20 ms @ 48 kHz
+    let total = data.len() / ch;
+    let mut buf = vec![0.0f32; FRAME * ch];
+    let mut out = vec![0u8; 4000];
+    let mut pos = 0usize;
+    let mut granule: u64 = u64::from(preskip);
+    while pos < total {
+        let n = FRAME.min(total - pos);
+        buf[..n * ch].copy_from_slice(&data[pos * ch..(pos + n) * ch]);
+        for v in &mut buf[n * ch..] {
+            *v = 0.0; // zero-pad the final short frame; granule trims it on decode
+        }
+        let len = enc
+            .encode_float(&buf, &mut out)
+            .map_err(|e| EngineError::Backend(format!("opus encode: {e}")))?;
+        pos += n;
+        granule += n as u64;
+        let end = pos >= total;
+        pw.write_packet(
+            out[..len].to_vec(),
+            serial,
+            if end {
+                ogg::PacketWriteEndInfo::EndStream
+            } else {
+                ogg::PacketWriteEndInfo::NormalPacket
+            },
+            granule,
+        )
+        .map_err(io)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

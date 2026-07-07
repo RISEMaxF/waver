@@ -126,6 +126,14 @@ pub struct ProjectView {
     pub can_redo: bool,
     pub tracks: Vec<TrackView>,
     pub sources: Vec<SourceView>,
+    pub markers: Vec<MarkerView>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MarkerView {
+    pub id: String,
+    pub name: String,
+    pub frame: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -229,6 +237,15 @@ impl ProjectView {
                     sample_rate: s.sample_rate,
                     frames: s.frames,
                     path: s.path.to_string_lossy().to_string(),
+                })
+                .collect(),
+            markers: project
+                .markers
+                .iter()
+                .map(|m| MarkerView {
+                    id: m.id.to_string(),
+                    name: m.name.clone(),
+                    frame: m.frame,
                 })
                 .collect(),
         }
@@ -643,6 +660,48 @@ pub fn delete_range(
     ripple: bool,
 ) -> Result<ProjectView, String> {
     apply_edit(&state, |p| p.delete_range(start, end, ripple).map(|_| ()))
+}
+
+/// Markers (labels): add / move / rename / delete - all single undoable edits.
+#[tauri::command]
+pub fn add_marker(
+    state: State<'_, AudioState>,
+    frame: u64,
+    name: String,
+) -> Result<ProjectView, String> {
+    apply_edit(&state, |p| {
+        p.add_marker(frame, name.clone());
+        Ok(())
+    })
+}
+
+#[tauri::command]
+pub fn move_marker(
+    state: State<'_, AudioState>,
+    marker_id: String,
+    frame: u64,
+) -> Result<ProjectView, String> {
+    let id = parse_id(&marker_id)?;
+    apply_edit(&state, |p| p.move_marker(id, frame))
+}
+
+#[tauri::command]
+pub fn rename_marker(
+    state: State<'_, AudioState>,
+    marker_id: String,
+    name: String,
+) -> Result<ProjectView, String> {
+    let id = parse_id(&marker_id)?;
+    apply_edit(&state, |p| p.rename_marker(id, name.clone()))
+}
+
+#[tauri::command]
+pub fn delete_marker(
+    state: State<'_, AudioState>,
+    marker_id: String,
+) -> Result<ProjectView, String> {
+    let id = parse_id(&marker_id)?;
+    apply_edit(&state, |p| p.delete_marker(id))
 }
 
 /// Delete several clips as one undoable edit (multi-select delete).
@@ -1089,6 +1148,8 @@ pub fn export_project(state: State<'_, AudioState>, req: ExportRequest) -> Resul
     let format = match req.format.as_str() {
         "flac" => ExportFormat::Flac,
         "ogg" => ExportFormat::Ogg,
+        "mp3" => ExportFormat::Mp3,
+        "opus" => ExportFormat::Opus,
         _ => ExportFormat::Wav,
     };
     let bit_depth = match req.bit_depth.as_str() {

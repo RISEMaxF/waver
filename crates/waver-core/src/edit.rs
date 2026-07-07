@@ -142,6 +142,49 @@ impl Project {
         Ok(())
     }
 
+    /// Add a marker at `frame`; returns its id.
+    pub fn add_marker(&mut self, frame: u64, name: String) -> Uuid {
+        let m = crate::model::Marker {
+            id: Uuid::new_v4(),
+            name,
+            frame,
+        };
+        let id = m.id;
+        self.markers.push(m);
+        self.markers.sort_by_key(|m| m.frame);
+        id
+    }
+
+    pub fn move_marker(&mut self, id: Uuid, frame: u64) -> Result<(), EditError> {
+        let m = self
+            .markers
+            .iter_mut()
+            .find(|m| m.id == id)
+            .ok_or_else(|| EditError::Invalid(format!("no marker {id}")))?;
+        m.frame = frame;
+        self.markers.sort_by_key(|m| m.frame);
+        Ok(())
+    }
+
+    pub fn rename_marker(&mut self, id: Uuid, name: String) -> Result<(), EditError> {
+        let m = self
+            .markers
+            .iter_mut()
+            .find(|m| m.id == id)
+            .ok_or_else(|| EditError::Invalid(format!("no marker {id}")))?;
+        m.name = name;
+        Ok(())
+    }
+
+    pub fn delete_marker(&mut self, id: Uuid) -> Result<(), EditError> {
+        let before = self.markers.len();
+        self.markers.retain(|m| m.id != id);
+        if self.markers.len() == before {
+            return Err(EditError::Invalid(format!("no marker {id}")));
+        }
+        Ok(())
+    }
+
     /// Delete several clips as ONE edit (one undo step; multi-select delete).
     /// Unknown ids are ignored so a stale selection can't fail the whole batch.
     pub fn delete_clips(&mut self, ids: &[Uuid]) -> Result<usize, EditError> {

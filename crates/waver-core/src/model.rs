@@ -353,6 +353,17 @@ pub struct Project {
     pub sample_rate: u32,
     pub sources: Vec<Source>,
     pub tracks: Vec<Track>,
+    /// Named timeline positions (labels/markers). Back-compat: absent in old files.
+    #[serde(default)]
+    pub markers: Vec<Marker>,
+}
+
+/// A named position on the timeline (Audacity label / DAW marker).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Marker {
+    pub id: Uuid,
+    pub name: String,
+    pub frame: u64,
 }
 
 impl Project {
@@ -361,6 +372,7 @@ impl Project {
             sample_rate,
             sources: Vec::new(),
             tracks: Vec::new(),
+            markers: Vec::new(),
         }
     }
 

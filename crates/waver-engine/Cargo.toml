@@ -23,6 +23,10 @@ rubato = { workspace = true }
 flacenc = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
+mp3lame-encoder = "0.2.4"
+audiopus = "0.2.0"
+ogg = "0.9.2"
+vorbis_rs.workspace = true
 
 [dev-dependencies]
 claxon = "0.4"
