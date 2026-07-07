@@ -12,14 +12,15 @@
 
 :root {
   /* ---- primitives ---- */
-  /* Gray ramp is strictly monotonic: higher number = darker (W-21). */
-  --gray-950: #0e1116;
-  --gray-900: #12161c;
-  --gray-850: #161b22;
-  --gray-800: #1c232e;
-  --gray-700: #232b36;
-  --blue-400: #4cc2ff;
-  --blue-300: #8fd6ff;
+  /* Graphite ramp, strictly monotonic: higher number = darker (W-21). */
+  --gray-950: #0b0c0e;
+  --gray-900: #101215;
+  --gray-850: #14171b;
+  --gray-800: #1a1e23;
+  --gray-700: #262b31;
+  /* Signal orange — the single chrome accent (TE manifesto: orange on graphite). */
+  --orange-500: #ff7a1a;
+  --orange-400: #ff9440;
   --red-500: #f85149;
   --green-500: #3fb950;
   --amber-500: #d29922;
@@ -29,9 +30,9 @@
   --color-surface: var(--gray-950);
   --color-panel: var(--gray-850);
   --color-border: var(--gray-700);
-  --color-text: #e6edf3;
-  --color-text-muted: #9fabbb; /* raised from #8b97a6 for legibility (F5) */
-  --color-accent: var(--blue-400);
+  --color-text: #e8eaec;
+  --color-text-muted: #98a0a8;
+  --color-accent: var(--orange-500);
   --color-ok: var(--green-500);
   --color-warn: var(--amber-500);
   --color-err: var(--red-500);
@@ -56,7 +57,7 @@
   --shadow-modal: 0 12px 48px rgb(0 0 0 / 45%);
 
   /* ---- track identity palette (Ableton-style), canvas + gutter share it (W-11) ---- */
-  --track-1: #2f81f7; /* not the accent blue — selection stays distinguishable */
+  --track-1: #2f81f7; /* content colors stay cool so the orange chrome reads (W-11) */
   --track-2: #7ee787;
   --track-3: #ffa657;
   --track-4: #d2a8ff;
@@ -66,17 +67,17 @@
   --track-8: #56d364;
 
   /* ---- canvas palette (shared with the timeline renderer via getComputedStyle) ---- */
-  --wave: var(--blue-400);
-  --wave-sel: var(--blue-300);
+  --wave: var(--orange-500);
+  --wave-sel: var(--orange-400);
   /* Zebra pair widened to a perceptible ~1.10:1 step (W-21). */
-  --wave-lane: #151a21;
-  --wave-lane-alt: #10141a;
-  --wave-grid: #242d3a;
+  --wave-lane: #14171b;
+  --wave-lane-alt: #0f1114;
+  --wave-grid: #272d34;
   --wave-ruler: var(--color-text-muted);
-  --wave-clip: #16324a;
-  --wave-clip-sel: #1d4a6b;
-  --wave-clip-edge: #2b6a93;
-  --wave-clip-edge-sel: var(--blue-400);
+  --wave-clip: #33241a;
+  --wave-clip-sel: #4a3222;
+  --wave-clip-edge: #8a5a33;
+  --wave-clip-edge-sel: var(--orange-500);
   --wave-snap: var(--amber-500);
   --wave-playhead: var(--red-500);
   --wave-fade-fill: color-mix(in srgb, var(--color-surface) 55%, transparent);
@@ -98,16 +99,18 @@
   --space-5: 1.5rem;
   --space-6: 2rem;
 
-  /* ---- radii ---- */
+  /* ---- radii (tight, hardware-flat) ---- */
   --radius-xs: 2px;
-  --radius-sm: 4px;
-  --radius-md: 7px;
-  --radius-lg: 11px;
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
 
-  /* ---- typography ---- */
-  --font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* ---- typography ----
+   * Mono-first, TE-style: one monospaced voice for the whole instrument —
+   * labels, buttons, readouts. Precision as identity; numbers tabular for free. */
   --font-mono:
     ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --font-family: var(--font-mono);
   --font-size-xs: 0.75rem;
   --font-size-sm: 0.85rem;
   --font-size-md: 1rem;
@@ -115,19 +118,19 @@
   --font-size-canvas: 10px; /* clip/ruler labels drawn by the renderer (W-22) */
 }
 
-/* ---- Light theme: override only the semantic + canvas colors ---- */
+/* ---- Light theme: TE hardware gray — a light-gray body, not a white web page ---- */
 :root[data-theme="light"] {
   color-scheme: light;
-  --color-surface: #f6f8fa;
-  --color-panel: #ffffff;
-  --color-border: #d0d7de;
-  --color-text: #1f2328;
-  --color-text-muted: #59636e;
-  --color-accent: #0969da;
+  --color-surface: #d9dadc;
+  --color-panel: #e6e7e8;
+  --color-border: #b4b7ba;
+  --color-text: #17181a;
+  --color-text-muted: #5c6166;
+  --color-accent: #d95f00;
   --color-ok: #1a7f37;
   --color-warn: #9a6700;
   --color-err: #cf222e;
-  --color-solo: #b8860b;
+  --color-solo: #9a7400;
 
   --shadow-sm: 0 1px 2px rgb(31 35 40 / 12%);
   --shadow-popover: 0 8px 28px rgb(31 35 40 / 15%);
@@ -143,15 +146,15 @@
   --track-7: #0550ae;
   --track-8: #116329;
 
-  --wave: #0969da;
-  --wave-sel: #218bff;
-  --wave-lane: #eef1f4;
-  --wave-lane-alt: #e6eaef;
-  --wave-grid: #d8dee4;
-  --wave-clip: #cfe3f5;
-  --wave-clip-sel: #b6d7f2;
-  --wave-clip-edge: #6cb0e6;
-  --wave-clip-edge-sel: #0969da;
+  --wave: #d95f00;
+  --wave-sel: #b04c00;
+  --wave-lane: #e2e3e5;
+  --wave-lane-alt: #d8d9db;
+  --wave-grid: #c2c5c8;
+  --wave-clip: #f2ddc9;
+  --wave-clip-sel: #eccdae;
+  --wave-clip-edge: #cf9a63;
+  --wave-clip-edge-sel: #d95f00;
   --wave-fade-shade: rgba(20, 24, 30, 0.3);
   --wave-fade-line: rgba(25, 30, 40, 0.85);
   --wave-fade-handle: #1f2328;
