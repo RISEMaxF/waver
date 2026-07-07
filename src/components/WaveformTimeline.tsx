@@ -928,10 +928,13 @@ export function WaveformTimeline({
         };
       }
     } else {
-      // Empty lane: arm a range-select drag. A plain click (no movement) still
-      // seeks — resolved on mouseup so click-to-seek keeps working.
+      // Empty lane: arm a range-select drag (anchor magnetized to clip edges /
+      // grid). A plain click still seeks — resolved on mouseup.
       setSelected(null);
-      drag.current = { kind: "range", anchorSec: clickedSec };
+      drag.current = {
+        kind: "range",
+        anchorSec: snapSec(clickedSec, gridStep()),
+      };
       setRange(null);
     }
     tick((n) => n + 1);
@@ -944,9 +947,12 @@ export function WaveformTimeline({
     if (drag.current) {
       if (drag.current.kind === "range") {
         const a = drag.current.anchorSec;
-        const b = Math.max(0, xToSec(mouse.current.x));
+        const raw = Math.max(0, xToSec(mouse.current.x));
+        // Magnetic end: clip edges + grid + playhead (same snapping as clip drags),
+        // so selecting exactly a clip's width is effortless.
+        const b = snapSec(raw, gridStep());
         setRange(
-          Math.abs(b - a) * pps < 3
+          Math.abs(raw - a) * pps < 3
             ? null
             : { start: Math.min(a, b), end: Math.max(a, b) },
         );
@@ -1017,14 +1023,15 @@ export function WaveformTimeline({
       seek(Math.round(snapToGrid(Math.max(0, xToSec(mouse.current.x))) * sr));
     } else if (d.kind === "range") {
       const a = d.anchorSec;
-      const b = Math.max(0, xToSec(mouse.current.x));
-      if (Math.abs(b - a) * pps < 3) {
+      const raw = Math.max(0, xToSec(mouse.current.x));
+      if (Math.abs(raw - a) * pps < 3) {
         // No real drag: behave like the old empty-lane click (seek + clear).
         setRange(null);
-        seek(Math.round(snapToGrid(b) * sr));
+        seek(Math.round(snapToGrid(raw) * sr));
       } else {
-        const start = snapToGrid(Math.min(a, b));
-        const end = snapToGrid(Math.max(a, b));
+        const b = snapSec(raw, step);
+        const start = Math.min(a, b);
+        const end = Math.max(a, b);
         setRange(end > start ? { start, end } : null);
         seek(Math.round(start * sr)); // Space then plays the selection
       }
@@ -1049,6 +1056,14 @@ export function WaveformTimeline({
         hit.clip.fade_out_len,
         nextCurve(hit.clip.fade_out_curve as FadeCurve),
       );
+    } else {
+      // Double-click a clip body: select exactly the clip's time range
+      // (Audacity's double-click-selects-clip), ready for loop/delete/zoom.
+      setSelected(hit.clip.id);
+      setRange({
+        start: hit.clip.timeline_start / sr,
+        end: (hit.clip.timeline_start + clipLen(hit.clip)) / sr,
+      });
     }
   };
 
@@ -1653,6 +1668,14 @@ export function WaveformTimeline({
             label: "Split into mono channels",
             onClick: () => api.splitChannels(clip.id),
           },
+          {
+            label: "Select clip range",
+            onClick: () =>
+              setRange({
+                start: clip.timeline_start / sr,
+                end: (clip.timeline_start + clipLen(clip)) / sr,
+              }),
+          },
           { label: "Zoom to clip", shortcut: "E", onClick: zoomToSelection },
           "sep",
           {
@@ -2163,7 +2186,8 @@ function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
       title: "Transport",
       items: [
         ["Space", "Play / pause (stops a rolling take)"],
-        ["Drag empty lane", "Select a time range (loop / delete)"],
+        ["Drag empty lane", "Select a time range (snaps to clip edges)"],
+        ["Double-click clip", "Select exactly the clip's range"],
         ["Shift + R", "Start / stop recording"],
         ["Esc", "Stop playback · clear selection"],
         ["Home / End", "Jump to start / end"],
