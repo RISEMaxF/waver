@@ -1942,6 +1942,7 @@ export function WaveformTimeline({
   return (
     <div className="waveform">
       <div className="wave-toolbar" ref={toolbarRef}>
+        <div className="tb-sticky">
         <div className="transport-group">
           <button
             type="button"
@@ -2023,6 +2024,7 @@ export function WaveformTimeline({
               {barsBeats(playheadSec, bpm, stepSec)}
             </span>
           )}
+        </div>
         </div>
         <MasterMeter playing={playing && !paused} />
         <div className="speed-controls" title="Playback speed">

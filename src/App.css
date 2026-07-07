@@ -1022,6 +1022,21 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   overflow-y: hidden;
 }
 
+/* The transport + timecode stay pinned while the rest of the toolbar scrolls:
+   play/stop/record must never leave the screen (sticky inside overflow-x). */
+.tb-sticky {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  flex-shrink: 0;
+  padding-right: var(--space-1-5);
+  background: var(--bg);
+  box-shadow: 6px 0 8px -4px rgb(0 0 0 / 45%);
+}
+
 /* ---- Transport: bigger, colored (green play / red stop) ---- */
 .transport-group {
   display: flex;
