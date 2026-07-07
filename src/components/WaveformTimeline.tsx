@@ -238,7 +238,10 @@ export function WaveformTimeline({
       setRulerH(
         Math.min(
           64,
-          Math.max(20, rulerResize.current.h + (e.clientY - rulerResize.current.y)),
+          Math.max(
+            20,
+            rulerResize.current.h + (e.clientY - rulerResize.current.y),
+          ),
         ),
       );
     };
@@ -355,8 +358,7 @@ export function WaveformTimeline({
     [snapEnabled, beatGrid, stepSec],
   );
 
-  const hasAudio =
-    !!project && project.tracks.some((t) => t.clips.length > 0);
+  const hasAudio = !!project && project.tracks.some((t) => t.clips.length > 0);
   const { playing, paused, startPlay, togglePause, stopPlay, seek } =
     useTransport({
       outputId,
@@ -629,11 +631,15 @@ export function WaveformTimeline({
         }
         rx.fillStyle = th.ruler;
         rx.font = th.labelFont;
+        // Ticks and labels anchor to the BOTTOM and scale with the ruler height,
+        // so a tall ruler reads as a proper scale instead of a void.
+        const majorStub = Math.min(18, Math.max(6, Math.round(rulerH * 0.3)));
+        const labelY = rulerH - majorStub - 4;
         const tick = (x: number) => {
           rx.strokeStyle = th.grid;
           rx.lineWidth = 1;
           rx.beginPath();
-          rx.moveTo(x + 0.5, rulerH - 6);
+          rx.moveTo(x + 0.5, rulerH - majorStub);
           rx.lineTo(x + 0.5, rulerH);
           rx.stroke();
         };
@@ -647,7 +653,7 @@ export function WaveformTimeline({
             const x = Math.round((t - scrollSec) * pps);
             rx.strokeStyle = th.grid;
             rx.beginPath();
-            rx.moveTo(x + 0.5, rulerH - 3);
+            rx.moveTo(x + 0.5, rulerH - Math.ceil(majorStub / 2));
             rx.lineTo(x + 0.5, rulerH);
             rx.stroke();
           }
@@ -655,7 +661,7 @@ export function WaveformTimeline({
           for (let t = first; (t - scrollSec) * pps <= width; t += step) {
             const x = Math.round((t - scrollSec) * pps);
             tick(x);
-            rx.fillText(fmtTime(t, step), x + 3, 12);
+            rx.fillText(fmtTime(t, step), x + 3, labelY);
           }
         } else {
           const stepsPerBar = gridDiv * 4;
@@ -669,7 +675,7 @@ export function WaveformTimeline({
               const bar = idx / stepsPerBar;
               if (barPx >= 4 || bar % labelEvery === 0) tick(Math.round(x));
               if (bar % labelEvery === 0)
-                rx.fillText(String(bar + 1), Math.round(x) + 3, 12);
+                rx.fillText(String(bar + 1), Math.round(x) + 3, labelY);
             }
           }
         }
@@ -702,7 +708,11 @@ export function WaveformTimeline({
         rx.stroke();
         // Start point: hollow marker (the second playhead - where play begins).
         const spx = (startPointSec - scrollSec) * pps;
-        if (spx >= 0 && spx <= width && Math.abs(spx - (playheadSec - scrollSec) * pps) > 1) {
+        if (
+          spx >= 0 &&
+          spx <= width &&
+          Math.abs(spx - (playheadSec - scrollSec) * pps) > 1
+        ) {
           rx.strokeStyle = th.playhead;
           rx.lineWidth = 1.5;
           rx.beginPath();
@@ -1133,6 +1143,7 @@ export function WaveformTimeline({
     loopOn,
     multiSel,
     markerDrag,
+    rulerH,
   ]);
 
   drawRef.current = draw;
@@ -1272,13 +1283,19 @@ export function WaveformTimeline({
     } else if (d.mode === "zoom") {
       // Drag up = zoom in, down = out; the time under the pointer stays put.
       const dy = d.startY - e.clientY;
-      const np = Math.min(MAX_PPS, Math.max(MIN_PPS, d.startPps * Math.exp(dy * 0.012)));
+      const np = Math.min(
+        MAX_PPS,
+        Math.max(MIN_PPS, d.startPps * Math.exp(dy * 0.012)),
+      );
       setPps(np);
       const rect = e.currentTarget.getBoundingClientRect();
       const x = e.clientX - rect.left;
       setScrollSec(Math.max(0, d.anchorSec - x / np));
     } else if (d.mode === "marker" && d.markerId) {
-      setMarkerDrag({ id: d.markerId, sec: snapSec(rulerRawSec(e), gridStep()) });
+      setMarkerDrag({
+        id: d.markerId,
+        sec: snapSec(rulerRawSec(e), gridStep()),
+      });
     } else if (d.mode === "loop-move" && range) {
       const len = range.end - range.start;
       const start = Math.max(
