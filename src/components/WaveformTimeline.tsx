@@ -105,7 +105,15 @@ interface Props {
 }
 
 type Drag =
-  | { kind: "move"; clipId: string; grabSec: number }
+  | {
+      kind: "move";
+      clipId: string;
+      grabSec: number;
+      /** Group drag: every member id + the clamped delta window (frames). */
+      groupIds?: Set<string>;
+      boundsMin?: number;
+      boundsMax?: number;
+    }
   | { kind: "trim-start"; clipId: string }
   | { kind: "trim-end"; clipId: string }
   | { kind: "fade-in"; clipId: string }
@@ -790,21 +798,25 @@ export function WaveformTimeline({
       ctx.globalAlpha = 1;
     }
 
-    // Group-drag preview: the time delta the grabbed clip is currently displaced by.
+    // Group-drag preview: one uniform delta, clamped to the group's allowed
+    // window so members never separate and never overlap unselected clips.
     let groupDeltaSec = 0;
     const dnow = drag.current;
-    if (
-      project &&
-      dnow &&
-      dnow.kind === "move" &&
-      multiSel.size > 1 &&
-      multiSel.has(dnow.clipId)
-    ) {
+    const dGroup =
+      dnow && dnow.kind === "move" && dnow.groupIds ? dnow.groupIds : null;
+    if (project && dnow && dnow.kind === "move" && dGroup) {
       const grabbed = findClip(project, dnow.clipId);
       if (grabbed) {
-        groupDeltaSec =
-          snapSec(xToSec(mouse.current.x) - dnow.grabSec, step) -
-          grabbed.timeline_start / sr;
+        const rawDelta = Math.round(
+          (snapSec(xToSec(mouse.current.x) - dnow.grabSec, step) -
+            grabbed.timeline_start / sr) *
+            sr,
+        );
+        const clamped = Math.min(
+          dnow.boundsMax ?? Infinity,
+          Math.max(dnow.boundsMin ?? -Infinity, rawDelta),
+        );
+        groupDeltaSec = clamped / sr;
       }
     }
 
@@ -818,13 +830,15 @@ export function WaveformTimeline({
         let drawTop = laneTop;
         let ghost = false;
         if (d && d.kind === "move" && d.clipId === clip.id) {
-          startSec = snapSec(xToSec(mouse.current.x) - d.grabSec, step);
-          // Group drags stay on their own lanes; solo drags follow the pointer.
-          if (multiSel.size <= 1 || !multiSel.has(clip.id))
+          if (dGroup) {
+            startSec = clip.timeline_start / sr + groupDeltaSec;
+          } else {
+            startSec = snapSec(xToSec(mouse.current.x) - d.grabSec, step);
             drawTop = laneTopAt(mouse.current.y) ?? laneTop;
+          }
           ghost = true;
-        } else if (groupDeltaSec !== 0 && multiSel.has(clip.id)) {
-          startSec = Math.max(0, startSec + groupDeltaSec);
+        } else if (dGroup && dGroup.has(clip.id)) {
+          startSec = clip.timeline_start / sr + groupDeltaSec;
           ghost = true;
         }
         let lenSec = clipLen(clip) / sr;
@@ -1327,6 +1341,34 @@ export function WaveformTimeline({
     }
   };
 
+  // Allowed uniform delta window (frames) for moving `ids` as a rigid group:
+  // floored at zero on the left, stopped by the nearest unselected clip on every
+  // track in both directions - so the ghost, the commit, and the engine agree.
+  const groupMoveBounds = (
+    ids: Set<string>,
+  ): { min: number; max: number } => {
+    let min = -Infinity;
+    let max = Infinity;
+    let minStart = Infinity;
+    for (const t of project?.tracks ?? []) {
+      for (const c of t.clips) {
+        if (!ids.has(c.id)) continue;
+        minStart = Math.min(minStart, c.timeline_start);
+        const cs = c.timeline_start;
+        const ce = c.timeline_start + clipLen(c);
+        for (const o of t.clips) {
+          if (ids.has(o.id)) continue;
+          const os = o.timeline_start;
+          const oe = o.timeline_start + clipLen(o);
+          if (oe <= cs) min = Math.max(min, oe - cs); // blocker on the left
+          if (os >= ce) max = Math.min(max, os - ce); // blocker on the right
+        }
+      }
+    }
+    if (minStart !== Infinity) min = Math.max(min, -minStart);
+    return { min, max };
+  };
+
   const onMouseDown = (e: React.MouseEvent) => {
     const rect = canvasRef.current!.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -1352,17 +1394,20 @@ export function WaveformTimeline({
       setSelected(id);
       // Bundled clips select as one; otherwise a click on an unselected clip
       // collapses the multi-selection (dragging a member moves the whole group).
+      // `members` is resolved locally too: state commits async, but the drag arms now.
+      let members = new Set(multiSel);
       if (!multiSel.has(id)) {
         if (hit.clip.group) {
-          const members = new Set<string>();
+          members = new Set<string>();
           for (const t of project?.tracks ?? [])
             for (const c of t.clips)
               if (c.group === hit.clip.group) members.add(c.id);
-          setMultiSel(members);
         } else {
-          setMultiSel(new Set());
+          members = new Set();
         }
+        setMultiSel(members);
       }
+      members.add(id);
       if (hit.clip.locked) {
         // Locked: selectable, not editable - no drag of any kind.
         tick((n) => n + 1);
@@ -1380,10 +1425,15 @@ export function WaveformTimeline({
         // Click on a clip body: move the playhead there (seeking if playing) so the
         // playhead follows your click, then arm a move-drag.
         seekTo(Math.round(snapToGrid(clickedSec) * sr));
+        const isGroup = members.size > 1;
+        const bounds = isGroup ? groupMoveBounds(members) : null;
         drag.current = {
           kind: "move",
           clipId: id,
           grabSec: xToSec(x) - hit.clip.timeline_start / sr,
+          groupIds: isGroup ? members : undefined,
+          boundsMin: bounds?.min,
+          boundsMax: bounds?.max,
         };
       }
     } else {
