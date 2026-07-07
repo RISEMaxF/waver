@@ -59,16 +59,14 @@ export function useProject() {
     deleteRange: (start: number, end: number, ripple: boolean) =>
       run(api.deleteRange(start, end, ripple)),
     deleteClips: (ids: string[]) => run(api.deleteClips(ids)),
-    moveClips: (ids: string[], delta: number) =>
-      run(api.moveClips(ids, delta)),
+    moveClips: (ids: string[], delta: number) => run(api.moveClips(ids, delta)),
     groupClips: (ids: string[]) => run(api.groupClips(ids)),
     ungroupClips: (ids: string[]) => run(api.ungroupClips(ids)),
     setClipsLocked: (ids: string[], locked: boolean) =>
       run(api.setClipsLocked(ids, locked)),
     addMarker: (frame: number, name: string) => run(api.addMarker(frame, name)),
     moveMarker: (id: string, frame: number) => run(api.moveMarker(id, frame)),
-    renameMarker: (id: string, name: string) =>
-      run(api.renameMarker(id, name)),
+    renameMarker: (id: string, name: string) => run(api.renameMarker(id, name)),
     deleteMarker: (id: string) => run(api.deleteMarker(id)),
     mergeClips: (ids: string[]) => run(api.mergeClips(ids)),
     splitChannels: (id: string) => run(api.splitClipChannels(id)),

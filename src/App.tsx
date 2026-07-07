@@ -127,7 +127,11 @@ function TooltipLayer() {
 
 /** Positions the bubble fully inside the viewport after measuring it (a centered
  *  transform alone let wide tooltips run off the window edges). */
-function TooltipBubble({ tip }: { tip: { text: string; x: number; y: number } }) {
+function TooltipBubble({
+  tip,
+}: {
+  tip: { text: string; x: number; y: number };
+}) {
   const ref = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const el = ref.current;

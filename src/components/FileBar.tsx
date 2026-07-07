@@ -258,7 +258,13 @@ export function FileBar({
                       onClick: () => localStorage.removeItem(RECENT_KEY),
                     },
                   ]
-                : [{ label: "No recent projects", disabled: true, onClick: () => {} }],
+                : [
+                    {
+                      label: "No recent projects",
+                      disabled: true,
+                      onClick: () => {},
+                    },
+                  ],
             });
           }}
         >
@@ -411,7 +417,8 @@ export function FileBar({
                 >
                   <IconExport />
                   <span>
-                    Export selection ({fmtTimecode(exportRange.start / sampleRate)}
+                    Export selection (
+                    {fmtTimecode(exportRange.start / sampleRate)}
                     {" - "}
                     {fmtTimecode(exportRange.end / sampleRate)})
                   </span>

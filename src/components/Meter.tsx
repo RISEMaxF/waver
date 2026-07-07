@@ -72,8 +72,7 @@ export function Meter({
   useMeterAnimation(channels, (dbs) => {
     dbs.forEach((db, i) => {
       const el = fillRefs.current[i];
-      if (el)
-        el.style[compact ? "width" : "height"] = `${meterPct(db)}%`;
+      if (el) el.style[compact ? "width" : "height"] = `${meterPct(db)}%`;
     });
   });
   const holds = useRef<number[]>([]);
