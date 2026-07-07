@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+// Export settings live in a popover: format/bit-depth are touched once per
+// session, so they don't deserve permanent top-bar space (Audacity 4 pattern).
 import { ask } from "@tauri-apps/plugin-dialog";
 import {
   exportProjectDialog,
@@ -52,6 +54,19 @@ export function FileBar({
   const [bitDepth, setBitDepth] = useState<ExportBitDepth>("int24");
   const [busy, setBusy] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
+  const exportBtnRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!exportOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node))
+        setExportOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [exportOpen]);
   const [msg, setMsg] = useState<string | null>(null);
   const [projectPath, setProjectPath] = useState<string | null>(null);
 
@@ -244,51 +259,88 @@ export function FileBar({
         >
           <IconImport />
         </button>
-        <select
-          value={format}
-          onChange={(e) => setFormat(e.target.value as ExportFormat)}
-          title="Export format"
-        >
-          <option value="wav">WAV</option>
-          <option value="flac">FLAC</option>
-          <option value="ogg">OGG</option>
-        </select>
-        <select
-          value={bitDepth}
-          onChange={(e) => setBitDepth(e.target.value as ExportBitDepth)}
-          disabled={format === "ogg"}
-          title="Bit depth"
-        >
-          <option value="int16">16-bit</option>
-          <option value="int24">24-bit</option>
-          <option value="float32">32-bit float</option>
-        </select>
-        <button
-          type="button"
-          className={`tbtn icon-only${busyAction === "Export" ? " working" : ""}`}
-          disabled={busy || !hasContent}
-          onClick={() =>
-            run("Export", async () => {
-              const p = await exportProjectDialog(
-                format,
-                bitDepth,
-                sampleRate,
-                2,
-              );
-              if (p) setMsg(`Exported ${basename(p)}`);
-            })
-          }
-          aria-label="Export mixdown"
-          title={
-            busyAction === "Export"
-              ? "Exporting…"
-              : hasContent
-                ? "Export mixdown"
-                : "Record or import something first"
-          }
-        >
-          <IconExport />
-        </button>
+        <div className="filebar-export" ref={exportRef}>
+          <button
+            type="button"
+            ref={exportBtnRef}
+            className={`tbtn icon-only${busyAction === "Export" ? " working" : ""}${exportOpen ? " active" : ""}`}
+            disabled={busy}
+            aria-label="Export mixdown"
+            aria-haspopup="dialog"
+            aria-expanded={exportOpen}
+            title={busyAction === "Export" ? "Exporting…" : "Export mixdown…"}
+            onClick={() => setExportOpen((o) => !o)}
+          >
+            <IconExport />
+          </button>
+          {exportOpen && (
+            <div
+              className="ac-popover anchor-left export-popover"
+              role="dialog"
+              aria-label="Export mixdown"
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.stopPropagation();
+                  setExportOpen(false);
+                  exportBtnRef.current?.focus();
+                }
+              }}
+            >
+              <h3 className="devsel-heading">Export mixdown</h3>
+              <label className="export-row">
+                <span>Format</span>
+                <select
+                  value={format}
+                  onChange={(e) => setFormat(e.target.value as ExportFormat)}
+                >
+                  <option value="wav">WAV</option>
+                  <option value="flac">FLAC</option>
+                  <option value="ogg">OGG</option>
+                </select>
+              </label>
+              <label className="export-row">
+                <span>Bit depth</span>
+                <select
+                  value={bitDepth}
+                  onChange={(e) =>
+                    setBitDepth(e.target.value as ExportBitDepth)
+                  }
+                  disabled={format === "ogg"}
+                >
+                  <option value="int16">16-bit</option>
+                  <option value="int24">24-bit</option>
+                  <option value="float32">32-bit float</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                className="tbtn export-go"
+                disabled={busy || !hasContent}
+                title={
+                  hasContent ? undefined : "Record or import something first"
+                }
+                onClick={() => {
+                  setExportOpen(false);
+                  run("Export", async () => {
+                    const p = await exportProjectDialog(
+                      format,
+                      bitDepth,
+                      sampleRate,
+                      2,
+                    );
+                    if (p) setMsg(`Exported ${basename(p)}`);
+                  });
+                }}
+              >
+                <IconExport />
+                <span>Export {format.toUpperCase()}</span>
+              </button>
+              {!hasContent && (
+                <p className="export-hint">Record or import something first.</p>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {msg && (

@@ -76,7 +76,8 @@ export function Meter({
       title="Input level — click to reset peak / clip hold"
     >
       {compact && <IconMic size={12} className="meter-mic" />}
-      <div className="meter-bars">
+      <div className={compact ? "meter-col" : undefined}>
+        <div className="meter-bars">
         {channels.map((level, i) => {
           const rmsPct = normalize(level.rms_dbfs);
           const peakPct = normalize(level.peak_dbfs);
@@ -110,6 +111,16 @@ export function Meter({
             </div>
           );
         })}
+        </div>
+        {compact && (
+          <div className="meter-scale" aria-hidden="true">
+            {[-48, -24, -12, 0].map((v) => (
+              <span key={v} style={{ left: `${((v + 60) / 60) * 100}%` }}>
+                {v}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
       {compact && (
         <span className={`meter-compact-db${anyClip ? " clip" : ""}`}>

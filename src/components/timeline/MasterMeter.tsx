@@ -61,12 +61,21 @@ export function MasterMeter({ playing }: { playing: boolean }) {
       <span className="mm-label" aria-hidden="true">
         OUT
       </span>
-      <div className="mm-bars">
-        {[0, 1].map((ch) => (
-          <div className="mm-track" key={ch}>
-            <div className="mm-fill" style={{ width: `${pct(db[ch])}%` }} />
-          </div>
-        ))}
+      <div className="mm-col">
+        <div className="mm-bars">
+          {[0, 1].map((ch) => (
+            <div className="mm-track" key={ch}>
+              <div className="mm-fill" style={{ width: `${pct(db[ch])}%` }} />
+            </div>
+          ))}
+        </div>
+        <div className="meter-scale mm-scale" aria-hidden="true">
+          {[-48, -24, 0].map((v) => (
+            <span key={v} style={{ left: `${((v + 60) / 60) * 100}%` }}>
+              {v}
+            </span>
+          ))}
+        </div>
       </div>
       <span
         className={`mm-clip${clipped ? " on" : ""}`}

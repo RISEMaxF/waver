@@ -782,7 +782,11 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
     transparent calc(80% - 0.5px),
     color-mix(in srgb, var(--ink) 22%, transparent) calc(80% - 0.5px),
     color-mix(in srgb, var(--ink) 22%, transparent) calc(80% + 0.5px),
-    transparent calc(80% + 0.5px)
+    transparent calc(80% + 0.5px),
+    transparent calc(90% - 0.5px),
+    color-mix(in srgb, var(--ink) 22%, transparent) calc(90% - 0.5px),
+    color-mix(in srgb, var(--ink) 22%, transparent) calc(90% + 0.5px),
+    transparent calc(90% + 0.5px)
   );
 }
 
@@ -1066,6 +1070,19 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
 
 .transport.rec:hover:not(:disabled) {
   background: color-mix(in srgb, var(--err) 26%, transparent);
+}
+
+/* Skip-to-start/end: subdued, smaller circles in the transport cluster. */
+.transport.skip {
+  width: 30px;
+  height: 30px;
+  align-self: center;
+  color: var(--color-text-muted);
+}
+
+.transport.skip:hover:not(:disabled) {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
 }
 
 .transport.rec.recording {
@@ -1667,6 +1684,87 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   background: var(--bg);
   color: var(--ink);
   font-size: var(--font-size-xs);
+}
+
+/* Selection readout (Audacity's selection boxes, compacted): start–end (length). */
+.sel-readout {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-accent);
+  white-space: nowrap;
+}
+
+/* Export popover (format/bit-depth live here, not in the permanent chrome). */
+.filebar-export {
+  position: relative;
+}
+
+.export-popover {
+  width: 15rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.export-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.export-row select {
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: var(--font-size-sm);
+}
+
+.export-go {
+  justify-content: center;
+}
+
+.export-hint {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+/* dB scale labels under the horizontal meters (Ableton-style value range). */
+.meter-col,
+.mm-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.meter-scale {
+  position: relative;
+  height: 9px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  line-height: 1;
+  color: var(--color-text-muted);
+}
+
+.meter-scale span {
+  position: absolute;
+  top: 1px;
+  transform: translateX(-50%);
+}
+
+.meter-scale span:last-child {
+  transform: translateX(-100%);
+}
+
+.meter-scale span:first-child {
+  transform: translateX(-15%);
 }
 
 /* ---- Context menu (right-click) ---- */

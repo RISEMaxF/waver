@@ -38,6 +38,8 @@ import {
   IconPlay,
   IconPlus,
   IconRedo,
+  IconSkipEnd,
+  IconSkipStart,
   IconSplit,
   IconStop,
   IconTrash,
@@ -1500,6 +1502,8 @@ export function WaveformTimeline({
     stopPlay,
     seek,
     seekEnd: () => seek(Math.round(contentEndSec() * sr)),
+    seekBy: (deltaSec: number) =>
+      seek(Math.max(0, Math.round((playheadSec + deltaSec) * sr))),
     zoomStep,
     hasRange: !!range,
     clearRange: () => setRange(null),
@@ -1531,6 +1535,8 @@ export function WaveformTimeline({
     stopPlay,
     seek,
     seekEnd: () => seek(Math.round(contentEndSec() * sr)),
+    seekBy: (deltaSec: number) =>
+      seek(Math.max(0, Math.round((playheadSec + deltaSec) * sr))),
     zoomStep,
     hasRange: !!range,
     clearRange: () => setRange(null),
@@ -1583,12 +1589,14 @@ export function WaveformTimeline({
           e.preventDefault();
           k.deleteRangeSel();
         }
-      } else if (e.key === "ArrowLeft" && !mod && k.selected) {
+      } else if (e.key === "ArrowLeft" && !mod) {
         e.preventDefault();
-        k.nudgeSelected(-1, e.shiftKey);
-      } else if (e.key === "ArrowRight" && !mod && k.selected) {
+        if (k.selected) k.nudgeSelected(-1, e.shiftKey);
+        else k.seekBy(e.shiftKey ? -5 : -1); // cursor seek, Audacity-style
+      } else if (e.key === "ArrowRight" && !mod) {
         e.preventDefault();
-        k.nudgeSelected(1, e.shiftKey);
+        if (k.selected) k.nudgeSelected(1, e.shiftKey);
+        else k.seekBy(e.shiftKey ? 5 : 1);
       } else if (e.key === "Home" && !mod) {
         e.preventDefault();
         k.seek(0);
@@ -1797,6 +1805,24 @@ export function WaveformTimeline({
               className={recording ? "rec-square" : "rec-dot"}
               aria-hidden="true"
             />
+          </button>
+          <button
+            type="button"
+            className="transport skip"
+            onClick={() => seek(0)}
+            title="Go to start (Home)"
+            aria-label="Go to start"
+          >
+            <IconSkipStart size={14} />
+          </button>
+          <button
+            type="button"
+            className="transport skip"
+            onClick={() => seek(Math.round(contentEndSec() * sr))}
+            title="Go to end (End)"
+            aria-label="Go to end"
+          >
+            <IconSkipEnd size={14} />
           </button>
         </div>
         <div className="wave-timecode">
@@ -2075,6 +2101,16 @@ export function WaveformTimeline({
         >
           <IconHelp />
         </button>
+        {range && (
+          <span
+            className="sel-readout"
+            title="Selection start – end (length)"
+            aria-label={`Selection from ${fmtTimecode(range.start)} to ${fmtTimecode(range.end)}`}
+          >
+            {fmtTimecode(range.start)}–{fmtTimecode(range.end)} (
+            {fmtTimecode(range.end - range.start)})
+          </span>
+        )}
       </div>
       <div className="wave-body">
         {/* Sticky ruler row: a fixed spacer over the track headers + the ruler canvas,
@@ -2202,7 +2238,7 @@ function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
         ["⌘/Ctrl + Shift + Z", "Redo"],
         ["⌘/Ctrl + C / X / V", "Copy / cut / paste"],
         ["⌘/Ctrl + D", "Duplicate clip"],
-        ["← / →", "Nudge clip (Shift = ×4)"],
+        ["← / →", "Nudge clip · seek when none selected"],
         ["Delete / Backspace", "Delete clip (or the selected range)"],
       ],
     },

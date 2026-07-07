@@ -88,6 +88,21 @@ export const IconZoomSel = (p: IconProps) => (
   </Svg>
 );
 
+// Skip to project start / end (transport).
+export const IconSkipStart = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M7 5v14" />
+    <path d="M18 6l-8 6 8 6z" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
+export const IconSkipEnd = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M17 5v14" />
+    <path d="M6 6l8 6-8 6z" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
 // Loop / cycle playback.
 export const IconLoop = (p: IconProps) => (
   <Svg {...p}>
