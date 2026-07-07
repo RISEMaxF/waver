@@ -17,7 +17,7 @@ export interface ClipView {
   fade_out_curve: string;
 }
 
-export type FadeCurve = "linear" | "equal_power" | "log";
+export type FadeCurve = "linear" | "equal_power" | "log" | "s_curve";
 
 export interface TrackView {
   id: string;

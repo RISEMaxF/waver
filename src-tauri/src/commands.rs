@@ -160,6 +160,7 @@ fn curve_str(c: FadeCurve) -> String {
         FadeCurve::Linear => "linear",
         FadeCurve::EqualPower => "equal_power",
         FadeCurve::Log => "log",
+        FadeCurve::SCurve => "s_curve",
     }
     .to_string()
 }
@@ -168,6 +169,7 @@ fn parse_curve(s: &str) -> FadeCurve {
     match s {
         "equal_power" => FadeCurve::EqualPower,
         "log" => FadeCurve::Log,
+        "s_curve" => FadeCurve::SCurve,
         _ => FadeCurve::Linear,
     }
 }

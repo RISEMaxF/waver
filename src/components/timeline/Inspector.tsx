@@ -1,7 +1,12 @@
 import { useState } from "react";
 import type { ClipView, FadeCurve, ProjectView } from "../../audio/project";
 import type { ProjectApi } from "../../audio/useProject";
-import { fmtGainDb, fmtTimecode, parseTimecode } from "./renderer";
+import {
+  CURVE_NAMES,
+  fmtGainDb,
+  fmtTimecode,
+  parseTimecode,
+} from "./renderer";
 
 /** Editable clip start time (h:mm:ss.mmm or plain seconds), committing on blur/Enter
  *  via the same move op as dragging (W-27). */
@@ -36,7 +41,7 @@ function StartField({
   );
 }
 
-const CURVES: FadeCurve[] = ["linear", "equal_power", "log"];
+const CURVES: FadeCurve[] = ["linear", "equal_power", "log", "s_curve"];
 
 /** Clip name field: edits locally, commits on blur / Enter (avoids an IPC per keystroke). */
 function NameField({
@@ -256,7 +261,7 @@ function FadeControls({
       >
         {CURVES.map((cv) => (
           <option key={cv} value={cv}>
-            {cv}
+            {CURVE_NAMES[cv] ?? cv}
           </option>
         ))}
       </select>

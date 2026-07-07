@@ -49,6 +49,7 @@ fn parse_curve(s: &str) -> FadeCurve {
     match s {
         "equal_power" => FadeCurve::EqualPower,
         "log" => FadeCurve::Log,
+        "s_curve" => FadeCurve::SCurve,
         _ => FadeCurve::Linear,
     }
 }

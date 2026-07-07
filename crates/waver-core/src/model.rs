@@ -64,6 +64,8 @@ pub enum FadeCurve {
     EqualPower,
     /// Logarithmic / exponential curve.
     Log,
+    /// Smoothstep S-curve: gentle at both ends, steep in the middle.
+    SCurve,
 }
 
 impl FadeCurve {
@@ -77,6 +79,8 @@ impl FadeCurve {
             FadeCurve::EqualPower => (t * std::f32::consts::FRAC_PI_2).sin(),
             // Quadratic ease-in — a slow, log-like taper.
             FadeCurve::Log => t * t,
+            // Smoothstep 3t²−2t³ — eases both edges (the classic crossfade shape).
+            FadeCurve::SCurve => t * t * (3.0 - 2.0 * t),
         }
     }
 }

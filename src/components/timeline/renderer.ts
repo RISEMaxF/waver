@@ -167,8 +167,17 @@ export function fadeGain(curve: string, t: number): number {
   const c = Math.min(1, Math.max(0, t));
   if (curve === "equal_power") return Math.sin((c * Math.PI) / 2);
   if (curve === "log") return c * c;
+  if (curve === "s_curve") return c * c * (3 - 2 * c);
   return c;
 }
+
+/** Human names for the fade presets (menus, inspector, drag label). */
+export const CURVE_NAMES: Record<string, string> = {
+  linear: "Linear",
+  equal_power: "Equal power",
+  log: "Log",
+  s_curve: "S-curve",
+};
 
 export function fmtTime(t: number, step: number): string {
   const m = Math.floor(t / 60);

@@ -63,6 +63,7 @@ import {
   SNAP_PX,
   TRACK_HEIGHT,
   COLLAPSED_H,
+  CURVE_NAMES,
   fmtTimecode,
   labelColorFor,
   trackColor,
@@ -142,7 +143,9 @@ function nextCurve(c: FadeCurve): FadeCurve {
     ? "equal_power"
     : c === "equal_power"
       ? "log"
-      : "linear";
+      : c === "log"
+        ? "s_curve"
+        : "linear";
 }
 
 export function WaveformTimeline({
@@ -687,6 +690,47 @@ export function WaveformTimeline({
           laneH,
           th,
         );
+        // Zero-length fades on the selected clip still show a faint corner handle,
+        // so the drag affordance is discoverable before any fade exists.
+        if (isSel) {
+          ctx.strokeStyle = th.fadeHandle;
+          ctx.globalAlpha = 0.45;
+          ctx.lineWidth = 1;
+          if (fadeInFrames <= 0) {
+            ctx.beginPath();
+            ctx.arc(rx0 + 4, drawTop + 4, 3, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          if (fadeOutFrames <= 0) {
+            ctx.beginPath();
+            ctx.arc(rx0 + rw - 4, drawTop + 4, 3, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          ctx.globalAlpha = 1;
+        }
+        // Live readout while shaping a fade: length + curve name at the handle.
+        if (
+          d &&
+          (d.kind === "fade-in" || d.kind === "fade-out") &&
+          d.clipId === clip.id
+        ) {
+          const frames = d.kind === "fade-in" ? fadeInFrames : fadeOutFrames;
+          const ms = Math.round((frames / sr) * 1000);
+          const curve =
+            d.kind === "fade-in" ? clip.fade_in_curve : clip.fade_out_curve;
+          const label = `${ms} ms · ${CURVE_NAMES[curve] ?? curve}`;
+          ctx.font = th.labelFont;
+          const tw = ctx.measureText(label).width;
+          const lx =
+            d.kind === "fade-in"
+              ? Math.min(x0 + (frames / sr) * pps + 6, width - tw - 6)
+              : Math.max(x0 + w - (frames / sr) * pps - tw - 6, 6);
+          ctx.fillStyle = th.labelText;
+          ctx.globalAlpha = 0.95;
+          ctx.textBaseline = "top";
+          ctx.fillText(label, lx, drawTop + 18);
+          ctx.globalAlpha = 1;
+        }
         drawFade(
           ctx,
           "out",
@@ -1653,6 +1697,52 @@ export function WaveformTimeline({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const hit = hitTest(x, y);
+    if (hit && (hit.zone === "fade-in" || hit.zone === "fade-out")) {
+      const clip = hit.clip;
+      const isIn = hit.zone === "fade-in";
+      setSelected(clip.id);
+      const curCurve = (
+        isIn ? clip.fade_in_curve : clip.fade_out_curve
+      ) as FadeCurve;
+      const curLen = isIn ? clip.fade_in_len : clip.fade_out_len;
+      const apply = (len: number, curve: FadeCurve) =>
+        isIn
+          ? api.setFadeIn(clip.id, len, curve)
+          : api.setFadeOut(clip.id, len, curve);
+      setCtxMenu({
+        x: e.clientX,
+        y: e.clientY,
+        items: [
+          ...(["linear", "equal_power", "log", "s_curve"] as FadeCurve[]).map(
+            (cv) => ({
+              label: `${cv === curCurve ? "● " : "○ "}${CURVE_NAMES[cv]}`,
+              onClick: () => apply(curLen, cv),
+            }),
+          ),
+          "sep" as const,
+          {
+            label: "Fast (30 ms)",
+            onClick: () => apply(Math.round(0.03 * sr), curCurve),
+          },
+          {
+            label: "Medium (250 ms)",
+            onClick: () => apply(Math.round(0.25 * sr), curCurve),
+          },
+          {
+            label: "Long (1 s)",
+            onClick: () => apply(sr, curCurve),
+          },
+          "sep" as const,
+          {
+            label: `Remove fade-${isIn ? "in" : "out"}`,
+            danger: true,
+            disabled: curLen <= 0,
+            onClick: () => apply(0, curCurve),
+          },
+        ],
+      });
+      return;
+    }
     if (hit) {
       const clip = hit.clip;
       setSelected(clip.id);
