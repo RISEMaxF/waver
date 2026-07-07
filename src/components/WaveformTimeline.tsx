@@ -1324,18 +1324,29 @@ export function WaveformTimeline({
     );
   }, [project]);
 
-  // ---- Follow playhead: keep it in view during playback (Audacity/Ableton) ----
+  // ---- Follow the moving head: playback playhead OR the recording write-head ----
+  // Recording isn't playback here (the playhead stays put), so the follow logic
+  // tracks the live take's leading edge while capturing (recElapsed ticks ~10 Hz).
   useEffect(() => {
-    if (!followPlayhead || !playing || width <= 0) return;
+    if (!followPlayhead || width <= 0) return;
+    if (!playing && !recording) return;
+    const head = recording ? recStartSec.current + recElapsed : playheadSec;
     const viewSec = width / pps;
-    const left = scrollSec;
-    const right = scrollSec + viewSec;
-    // Re-page when the playhead crosses the right edge or scrolls off the left.
-    if (playheadSec > right - viewSec * 0.08)
-      setScrollSec(Math.max(0, playheadSec - viewSec * 0.15));
-    else if (playheadSec < left)
-      setScrollSec(Math.max(0, playheadSec - viewSec * 0.15));
-  }, [followPlayhead, playing, playheadSec, pps, width, scrollSec]);
+    // Re-page when the head crosses the right edge or falls off the left.
+    if (head > scrollSec + viewSec * 0.92)
+      setScrollSec(Math.max(0, head - viewSec * 0.15));
+    else if (head < scrollSec)
+      setScrollSec(Math.max(0, head - viewSec * 0.15));
+  }, [
+    followPlayhead,
+    playing,
+    recording,
+    recElapsed,
+    playheadSec,
+    pps,
+    width,
+    scrollSec,
+  ]);
 
   // ---- Keyboard shortcuts (registered once; reads latest via a ref) ----
   const kb = useRef({
