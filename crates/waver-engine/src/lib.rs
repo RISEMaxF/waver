@@ -30,7 +30,7 @@ pub use import::{import_file, ImportInfo};
 pub use input::{open as open_input, InputSession};
 pub use mixer::{decode_wav, DecodedSource, Mixer};
 pub use peaks::{build_pyramid, encode_pyramid, generate_for_wav};
-pub use playback::{start as start_playback, LoopRegion, Playback};
+pub use playback::{start as start_playback, LoopRegion, Playback, SpeedSpec};
 
 use waver_core::engine::{DeviceInfo, EngineError, HostInfo, MeterUpdate, StreamParams};
 

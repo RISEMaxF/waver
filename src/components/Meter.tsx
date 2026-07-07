@@ -6,6 +6,8 @@ import { IconMic, IconRefresh } from "./icons";
 const MIN_DBFS = -60;
 const MAX_DBFS = 0;
 const PEAK_DECAY_DB = 1.2; // peak-hold falls this many dB per update
+const BAR_RELEASE_DB = 0.55; // bar release per update (~44 dB/s at 80 Hz emits)
+const CLIP_HOLD_MS = 2500; // clip latch auto-expires; click still clears it
 
 function normalize(dbfs: number): number {
   const clamped = Math.max(MIN_DBFS, Math.min(MAX_DBFS, dbfs));
@@ -23,10 +25,12 @@ export function Meter({
   channels: ChannelLevel[];
   compact?: boolean;
 }) {
-  // Peak-hold + latching clip indicator (Audacity pattern): holds decay slowly; the
-  // clip latch stays lit until the user clicks the meter to reset.
+  // Ballistics: the bar tracks PEAK with instant attack and a fast exponential
+  // release (peak-programme feel - RMS reads sluggish); the white tick is a slow
+  // peak-hold; the clip latch auto-expires after a moment (or click to clear).
   const holds = useRef<number[]>([]);
-  const clipped = useRef<boolean[]>([]);
+  const bar = useRef<number[]>([]);
+  const clipAt = useRef<number[]>([]);
   const [, bump] = useState(0);
   // Numeric readout updated at most ~5x/s (rounded to whole dB) so it's readable rather
   // than a blur of decimals.
@@ -34,16 +38,20 @@ export function Meter({
   const lastDbAt = useRef(0);
 
   useEffect(() => {
+    const now = performance.now();
     let peak = MIN_DBFS;
     channels.forEach((ch, i) => {
       holds.current[i] = Math.max(
         ch.peak_dbfs,
         (holds.current[i] ?? MIN_DBFS) - PEAK_DECAY_DB,
       );
-      if (ch.peak_dbfs >= -0.1) clipped.current[i] = true;
+      bar.current[i] = Math.max(
+        ch.peak_dbfs,
+        (bar.current[i] ?? MIN_DBFS) - BAR_RELEASE_DB,
+      );
+      if (ch.peak_dbfs >= -0.1) clipAt.current[i] = now;
       peak = Math.max(peak, ch.peak_dbfs);
     });
-    const now = performance.now();
     if (now - lastDbAt.current > 200) {
       lastDbAt.current = now;
       setDisplayDb(peak <= MIN_DBFS ? "-∞" : String(Math.round(peak)));
@@ -53,7 +61,8 @@ export function Meter({
 
   const reset = () => {
     holds.current = [];
-    clipped.current = [];
+    bar.current = [];
+    clipAt.current = [];
     bump((n) => n + 1);
   };
 
@@ -65,7 +74,8 @@ export function Meter({
     );
   }
 
-  const anyClip = clipped.current.some(Boolean);
+  const now = performance.now();
+  const anyClip = clipAt.current.some((t) => t && now - t < CLIP_HOLD_MS);
 
   return (
     <div
@@ -79,10 +89,10 @@ export function Meter({
       <div className={compact ? "meter-col" : undefined}>
         <div className="meter-bars">
         {channels.map((level, i) => {
-          const rmsPct = normalize(level.rms_dbfs);
+          const rmsPct = normalize(bar.current[i] ?? level.peak_dbfs);
           const peakPct = normalize(level.peak_dbfs);
           const holdPct = normalize(holds.current[i] ?? MIN_DBFS);
-          const isClipped = clipped.current[i];
+          const isClipped = !!clipAt.current[i] && now - clipAt.current[i] < CLIP_HOLD_MS;
           return (
             <div className="meter-channel" key={i}>
               <span

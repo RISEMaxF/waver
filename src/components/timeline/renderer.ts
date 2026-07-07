@@ -30,6 +30,27 @@ export const TRACK_COLOR_NAMES = [
   "Emerald",
 ];
 
+// Picker presets: a wider gamut than the 8-color auto-cycle. Explicit hexes chosen
+// to read on both lane themes; the native color input covers everything else.
+export const PICKER_COLORS: { hex: string; name: string }[] = [
+  { hex: "#2f81f7", name: "Blue" },
+  { hex: "#79c0ff", name: "Sky" },
+  { hex: "#39c5cf", name: "Cyan" },
+  { hex: "#2dd4bf", name: "Teal" },
+  { hex: "#7ee787", name: "Green" },
+  { hex: "#56d364", name: "Emerald" },
+  { hex: "#a3e635", name: "Lime" },
+  { hex: "#ffd966", name: "Yellow" },
+  { hex: "#f0b429", name: "Amber" },
+  { hex: "#ffa657", name: "Orange" },
+  { hex: "#ff7b72", name: "Coral" },
+  { hex: "#f778ba", name: "Pink" },
+  { hex: "#db61a2", name: "Magenta" },
+  { hex: "#d2a8ff", name: "Lavender" },
+  { hex: "#a371f7", name: "Violet" },
+  { hex: "#8b949e", name: "Gray" },
+];
+
 export function trackPalette(): string[] {
   const cs = getComputedStyle(document.documentElement);
   return TRACK_FALLBACK.map(

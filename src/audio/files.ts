@@ -54,10 +54,11 @@ export async function exportProjectDialog(
   bitDepth: ExportBitDepth,
   sampleRate: number,
   channels: number,
+  range?: { start: number; end: number } | null,
 ): Promise<string | null> {
   const ext = format;
   const path = await save({
-    defaultPath: `mixdown.${ext}`,
+    defaultPath: range ? `selection.${ext}` : `mixdown.${ext}`,
     filters: [{ name: format.toUpperCase(), extensions: [ext] }],
   });
   if (typeof path !== "string") return null;
@@ -68,6 +69,8 @@ export async function exportProjectDialog(
       bit_depth: bitDepth,
       sample_rate: sampleRate,
       channels,
+      range_start: range?.start ?? null,
+      range_end: range?.end ?? null,
     },
   });
   return path;
@@ -103,6 +106,12 @@ export async function loadProjectDialog(): Promise<LoadResult | null> {
     filters: [{ name: "Waver project", extensions: ["wvproj", "json"] }],
   });
   if (typeof path !== "string") return null;
+  const r = await invoke<Omit<LoadResult, "path">>("load_project", { path });
+  return { ...r, path };
+}
+
+/** Load a project from a known path (crash-recovery restore). */
+export async function loadProjectFromPath(path: string): Promise<LoadResult> {
   const r = await invoke<Omit<LoadResult, "path">>("load_project", { path });
   return { ...r, path };
 }

@@ -41,17 +41,18 @@ pub struct ExportOptions {
     pub sample_rate: u32,
     pub bit_depth: BitDepth,
     pub channels: u16,
+    /// Render only `[start, end)` project frames (export the selection); None = all.
+    pub range: Option<(u64, u64)>,
 }
 
-/// Render the whole project to interleaved samples at the project's own rate.
-fn render_full(mixer: &Mixer) -> Vec<f32> {
+/// Render `[start, end)` project frames to interleaved samples at the project rate.
+fn render_range(mixer: &Mixer, start: u64, end: u64) -> Vec<f32> {
     let oc = mixer.out_channels() as usize;
-    let total = mixer.total_frames();
-    let mut out = Vec::with_capacity(total as usize * oc);
-    let mut pos = 0u64;
+    let mut out = Vec::with_capacity((end - start) as usize * oc);
+    let mut pos = start;
     let mut block = vec![0.0f32; RENDER_CHUNK * oc];
-    while pos < total {
-        let n = ((total - pos) as usize).min(RENDER_CHUNK);
+    while pos < end {
+        let n = ((end - pos) as usize).min(RENDER_CHUNK);
         let slice = &mut block[..n * oc];
         mixer.mix_into(slice, pos);
         out.extend_from_slice(slice);
@@ -101,13 +102,21 @@ pub fn export_project(
 ) -> Result<(), EngineError> {
     let channels = opts.channels.max(1);
     let mixer = Mixer::new(project, channels)?;
-    if mixer.total_frames() > MAX_EXPORT_FRAMES {
+    let total = mixer.total_frames();
+    let (start, end) = match opts.range {
+        Some((s, e)) => (s.min(total), e.min(total)),
+        None => (0, total),
+    };
+    if end <= start {
+        return Err(EngineError::Backend("empty export range".into()));
+    }
+    if end - start > MAX_EXPORT_FRAMES {
         return Err(EngineError::Backend(format!(
-            "project length {} frames exceeds the export cap",
-            mixer.total_frames()
+            "export length {} frames exceeds the export cap",
+            end - start
         )));
     }
-    let mut mixed = render_full(&mixer);
+    let mut mixed = render_range(&mixer, start, end);
     if opts.sample_rate != project.sample_rate {
         mixed = resample_interleaved(
             &mixed,
@@ -245,6 +254,7 @@ mod tests {
             sample_rate: 48_000,
             bit_depth: BitDepth::Float32,
             channels: 2,
+            range: None,
         };
         export_project(&project, opts, &out).unwrap();
         let mut r = hound::WavReader::open(&out).unwrap();
@@ -287,6 +297,7 @@ mod tests {
             sample_rate: 48_000,
             bit_depth: BitDepth::Int16,
             channels: 2,
+            range: None,
         };
         export_project(&project, base, &wav).unwrap();
         export_project(

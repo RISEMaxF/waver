@@ -743,6 +743,8 @@ pub fn play(
     from_frame: u64,
     loop_start: Option<u64>,
     loop_end: Option<u64>,
+    speed: Option<f64>,
+    preserve_pitch: Option<bool>,
 ) -> Result<(), String> {
     // Stop any current playback (drop outside the guard hold below).
     let _ = state
@@ -755,9 +757,13 @@ pub fn play(
         (Some(s), Some(e)) if e > s => Some(LoopRegion { start: s, end: e }),
         _ => None,
     };
+    let speed = waver_engine::SpeedSpec {
+        rate: speed.unwrap_or(1.0),
+        preserve_pitch: preserve_pitch.unwrap_or(false),
+    };
     let playback = {
         let guard = state.edit.lock().expect("edit mutex poisoned");
-        waver_engine::start_playback(&guard.project, &device_id, from_frame, loop_region)
+        waver_engine::start_playback(&guard.project, &device_id, from_frame, loop_region, speed)
             .map_err(|e| e.to_string())?
     };
     *state.playback.lock().expect("playback mutex poisoned") = Some(playback);
@@ -787,8 +793,14 @@ pub fn preview_source(
     let mut proj = Project::new(source.sample_rate);
     let tid = proj.add_track("preview");
     proj.add_recording(source, Some(tid), 0);
-    let playback =
-        waver_engine::start_playback(&proj, &device_id, 0, None).map_err(|e| e.to_string())?;
+    let playback = waver_engine::start_playback(
+        &proj,
+        &device_id,
+        0,
+        None,
+        waver_engine::SpeedSpec::default(),
+    )
+    .map_err(|e| e.to_string())?;
     *state.playback.lock().expect("playback mutex poisoned") = Some(playback);
     Ok(())
 }
@@ -973,6 +985,11 @@ pub struct ExportRequest {
     pub bit_depth: String, // "int16" | "int24" | "float32"
     pub sample_rate: u32,
     pub channels: u16,
+    /// Export only this frame range (the timeline selection); None = whole project.
+    #[serde(default)]
+    pub range_start: Option<u64>,
+    #[serde(default)]
+    pub range_end: Option<u64>,
 }
 
 #[tauri::command]
@@ -992,6 +1009,10 @@ pub fn export_project(state: State<'_, AudioState>, req: ExportRequest) -> Resul
         sample_rate: req.sample_rate,
         bit_depth,
         channels: req.channels.max(1),
+        range: match (req.range_start, req.range_end) {
+            (Some(s), Some(e)) if e > s => Some((s, e)),
+            _ => None,
+        },
     };
     let project = {
         let guard = state.edit.lock().expect("edit mutex poisoned");
@@ -1047,6 +1068,45 @@ pub fn save_project(state: State<'_, AudioState>, path: String) -> Result<(), St
     let tmp = format!("{path}.tmp");
     std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+}
+
+fn recovery_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join("recovery.wvproj"))
+}
+
+/// Crash safety: snapshot the current project to a fixed recovery file in app data
+/// (atomic replace). The frontend calls this debounced while there are unsaved edits.
+#[tauri::command]
+pub fn autosave_project(app: AppHandle, state: State<'_, AudioState>) -> Result<(), String> {
+    let path = recovery_path(&app)?;
+    let project = {
+        let guard = state.edit.lock().expect("edit mutex poisoned");
+        guard.project.clone()
+    };
+    let json = serde_json::to_string(&project).map_err(|e| e.to_string())?;
+    let tmp = path.with_extension("wvproj.tmp");
+    std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+}
+
+/// If a recovery snapshot exists (previous session crashed or was force-quit while
+/// dirty), return its path so the frontend can offer to restore it.
+#[tauri::command]
+pub fn check_recovery(app: AppHandle) -> Result<Option<String>, String> {
+    let path = recovery_path(&app)?;
+    Ok(path.exists().then(|| path.to_string_lossy().into_owned()))
+}
+
+/// Remove the recovery snapshot (clean shutdown, or the user declined a restore).
+#[tauri::command]
+pub fn discard_recovery(app: AppHandle) -> Result<(), String> {
+    let path = recovery_path(&app)?;
+    if path.exists() {
+        std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 /// Result of loading a project: the view + any source files that are now missing.

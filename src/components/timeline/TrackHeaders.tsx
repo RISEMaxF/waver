@@ -12,11 +12,10 @@ import {
 } from "../icons";
 import {
   COLLAPSED_H,
+  PICKER_COLORS,
   TRACK_HEIGHT,
-  TRACK_COLOR_NAMES,
   fmtGainDb,
   trackColor,
-  trackPalette,
 } from "./renderer";
 
 interface Props {
@@ -171,21 +170,33 @@ export function TrackHeaders({
                     }
                   }}
                 >
-                  {trackPalette().map((c, ci) => (
+                  {PICKER_COLORS.map(({ hex, name }) => (
                     <button
-                      key={c}
+                      key={hex}
                       type="button"
-                      className={`color-swatch${t.color === c ? " selected" : ""}`}
-                      style={{ background: c }}
-                      title={TRACK_COLOR_NAMES[ci]}
-                      aria-label={TRACK_COLOR_NAMES[ci]}
-                      aria-pressed={t.color === c}
+                      className={`color-swatch${t.color === hex ? " selected" : ""}`}
+                      style={{ background: hex }}
+                      title={name}
+                      aria-label={name}
+                      aria-pressed={t.color === hex}
                       onClick={() => {
-                        api.setTrackColor(t.id, c);
+                        api.setTrackColor(t.id, hex);
                         setPickerFor(null);
                       }}
                     />
                   ))}
+                  <label
+                    className="color-custom"
+                    title="Custom color (opens the system picker)"
+                  >
+                    <input
+                      type="color"
+                      value={t.color ?? trackColor(i)}
+                      onChange={(e) => api.setTrackColor(t.id, e.target.value)}
+                      aria-label="Custom color"
+                    />
+                    Custom
+                  </label>
                   <button
                     type="button"
                     className="color-swatch auto"

@@ -34,6 +34,143 @@ pub struct LoopRegion {
     pub end: u64,
 }
 
+/// Playback speed: `rate` source frames consumed per output frame (clamped to
+/// 0.25..=4.0). `preserve_pitch` selects WSOLA time-stretch; otherwise varispeed
+/// (tape-style repitch via linear-interpolation resampling).
+#[derive(Debug, Clone, Copy)]
+pub struct SpeedSpec {
+    pub rate: f64,
+    pub preserve_pitch: bool,
+}
+
+impl Default for SpeedSpec {
+    fn default() -> Self {
+        Self {
+            rate: 1.0,
+            preserve_pitch: false,
+        }
+    }
+}
+
+/// WSOLA time-stretcher: 50% Hann overlap-add of windows fetched near the nominal
+/// (speed-scaled) position, each aligned by cross-correlation with the natural
+/// continuation of the previous window - pitch stays put, timing scales.
+struct Wsola {
+    oc: usize,
+    rate: f64,
+    win: usize,
+    hop: usize,
+    search: usize,
+    cmp: usize,
+    hann: Vec<f32>,
+    /// OLA accumulator (win frames); the first `hop` are complete after each step.
+    acc: Vec<f32>,
+    /// Where seamless audio would continue from the last chosen window.
+    natural_next: f64,
+    /// Speed-scaled analysis position (this is the UI-visible source position).
+    next_nominal: f64,
+    seg: Vec<f32>,
+    refbuf: Vec<f32>,
+}
+
+impl Wsola {
+    fn new(mixer: &Mixer, oc: usize, rate: f64, start: f64) -> Self {
+        let win = 2048usize;
+        let hop = win / 2;
+        let hann: Vec<f32> = (0..win)
+            .map(|i| {
+                let x = std::f32::consts::PI * i as f32 / win as f32;
+                x.sin() * x.sin()
+            })
+            .collect();
+        let mut w = Self {
+            oc,
+            rate,
+            win,
+            hop,
+            search: 512,
+            cmp: 512,
+            hann,
+            acc: vec![0.0; win * oc],
+            natural_next: 0.0,
+            next_nominal: 0.0,
+            seg: Vec::new(),
+            refbuf: Vec::new(),
+        };
+        // Prime one unsearched window so the first emitted hop has both OLA halves
+        // (no fade-in at play start).
+        Self::fetch(mixer, &mut w.seg, oc, start, win);
+        for i in 0..win {
+            let g = w.hann[i];
+            for c in 0..oc {
+                w.acc[i * oc + c] += w.seg[i * oc + c] * g;
+            }
+        }
+        w.natural_next = start + hop as f64;
+        w.next_nominal = start + hop as f64 * rate;
+        w
+    }
+
+    fn fetch(mixer: &Mixer, buf: &mut Vec<f32>, oc: usize, pos: f64, frames: usize) {
+        buf.resize(frames * oc, 0.0);
+        mixer.mix_into(buf, pos.max(0.0) as u64);
+    }
+
+    /// Produce `hop` output frames into `out` (appended), consuming `hop * rate`
+    /// source frames.
+    fn step(&mut self, mixer: &Mixer, out: &mut Vec<f32>) {
+        let oc = self.oc;
+        let region = self.win + 2 * self.search;
+        let base = (self.next_nominal - self.search as f64).max(0.0);
+        let mut seg = std::mem::take(&mut self.seg);
+        let mut refbuf = std::mem::take(&mut self.refbuf);
+        Self::fetch(mixer, &mut seg, oc, base, region);
+        Self::fetch(mixer, &mut refbuf, oc, self.natural_next, self.cmp);
+
+        // Correlate mono folds (stride 4 keeps this cheap at 80+ candidates).
+        let mono = |b: &[f32], i: usize| {
+            let mut acc = 0.0f32;
+            for c in 0..oc {
+                acc += b[i * oc + c];
+            }
+            acc
+        };
+        let mut best = self.search; // unbiased default: the nominal position
+        let mut best_score = f32::NEG_INFINITY;
+        for off in 0..=(2 * self.search) {
+            let mut score = 0.0f32;
+            let mut i = 0;
+            while i < self.cmp {
+                score += mono(&seg, off + i) * mono(&refbuf, i);
+                i += 4;
+            }
+            if score > best_score {
+                best_score = score;
+                best = off;
+            }
+        }
+
+        // OLA the chosen window; the accumulator's first `hop` frames are now final.
+        for i in 0..self.win {
+            let g = self.hann[i];
+            for c in 0..oc {
+                self.acc[i * oc + c] += seg[(best + i) * oc + c] * g;
+            }
+        }
+        out.extend_from_slice(&self.acc[..self.hop * oc]);
+        self.acc.copy_within(self.hop * oc.., 0);
+        let tail = (self.win - self.hop) * oc;
+        for v in &mut self.acc[tail..] {
+            *v = 0.0;
+        }
+
+        self.natural_next = base + best as f64 + self.hop as f64;
+        self.next_nominal += self.hop as f64 * self.rate;
+        self.seg = seg;
+        self.refbuf = refbuf;
+    }
+}
+
 /// A running playback session. Dropping it stops and joins the threads.
 pub struct Playback {
     stop: Arc<AtomicBool>,
@@ -43,6 +180,8 @@ pub struct Playback {
     /// Per-channel output peak (abs, f32 bits) since the last `take_levels` — written
     /// by the RT callback, reset-on-read by the metering poll (FR: master meter).
     levels: Arc<[AtomicU32; 2]>,
+    /// Source frames consumed per output frame (playback speed).
+    rate: f64,
     start_frame: u64,
     loop_region: Option<LoopRegion>,
     output: Option<JoinHandle<()>>,
@@ -52,7 +191,8 @@ pub struct Playback {
 impl Playback {
     /// Current playhead position in project frames (tracks audible output).
     pub fn position(&self) -> u64 {
-        let raw = self.start_frame + self.played.load(Ordering::Relaxed);
+        let advanced = (self.played.load(Ordering::Relaxed) as f64 * self.rate) as u64;
+        let raw = self.start_frame + advanced;
         match self.loop_region {
             Some(lr) if lr.end > lr.start && raw >= lr.start => {
                 lr.start + (raw - lr.start) % (lr.end - lr.start)
@@ -145,7 +285,9 @@ pub fn start(
     device_id: &str,
     start_frame: u64,
     loop_region: Option<LoopRegion>,
+    speed: SpeedSpec,
 ) -> Result<Playback, EngineError> {
+    let rate = speed.rate.clamp(0.25, 4.0);
     let sample_rate = project.sample_rate;
     let (_host, dev) = resolve_output_device(device_id)?;
     let (fmt, channels) = pick_output(&dev, sample_rate)?;
@@ -173,8 +315,13 @@ pub fn start(
             .name("waver-render".into())
             .spawn(move || {
                 let oc = channels as usize;
-                let mut pos = start_frame;
+                let unity = (rate - 1.0).abs() < 1e-6;
+                let mut src_pos = start_frame as f64;
                 let mut block = vec![0.0f32; RENDER_BLOCK * oc];
+                let mut src_block: Vec<f32> = Vec::new();
+                let mut wsola =
+                    (!unity && speed.preserve_pitch).then(|| Wsola::new(&mixer, oc, rate, src_pos));
+                let mut stretch_out: Vec<f32> = Vec::new();
                 loop {
                     if stop.load(Ordering::SeqCst) {
                         break;
@@ -184,7 +331,7 @@ pub fn start(
                         continue;
                     }
                     // Reached the end (no loop): let the ring drain, then stop.
-                    let at_end = loop_region.is_none() && pos >= total;
+                    let at_end = loop_region.is_none() && src_pos >= total as f64;
                     if at_end {
                         if consumer_is_empty(&producer, ring_slots) {
                             ended.store(true, Ordering::SeqCst);
@@ -198,14 +345,47 @@ pub fn start(
                         thread::sleep(Duration::from_millis(2));
                         continue;
                     }
-                    mixer.mix_into(&mut block, pos);
+                    if unity {
+                        mixer.mix_into(&mut block, src_pos as u64);
+                        src_pos += RENDER_BLOCK as f64;
+                    } else if let Some(w) = wsola.as_mut() {
+                        // Pitch-preserving stretch: WSOLA hops until a block is ready.
+                        let need = block.len();
+                        while stretch_out.len() < need {
+                            w.step(&mixer, &mut stretch_out);
+                        }
+                        block.copy_from_slice(&stretch_out[..need]);
+                        stretch_out.drain(..need);
+                        src_pos = w.next_nominal;
+                    } else {
+                        // Varispeed: resample the mixed stream (tape repitch).
+                        let need = (RENDER_BLOCK as f64 * rate).ceil() as usize + 2;
+                        src_block.resize(need * oc, 0.0);
+                        let base = src_pos.floor();
+                        mixer.mix_into(&mut src_block, base.max(0.0) as u64);
+                        let mut fp = src_pos - base;
+                        for i in 0..RENDER_BLOCK {
+                            let i0 = fp as usize;
+                            let t = (fp - i0 as f64) as f32;
+                            for c in 0..oc {
+                                let a = src_block[i0 * oc + c];
+                                let b = src_block[(i0 + 1) * oc + c];
+                                block[i * oc + c] = a + (b - a) * t;
+                            }
+                            fp += rate;
+                        }
+                        src_pos += RENDER_BLOCK as f64 * rate;
+                    }
                     for &s in &block {
                         let _ = producer.push(s);
                     }
-                    pos += RENDER_BLOCK as u64;
                     if let Some(lr) = loop_region {
-                        if lr.end > lr.start && pos >= lr.end {
-                            pos = lr.start;
+                        if lr.end > lr.start && src_pos >= lr.end as f64 {
+                            src_pos = lr.start as f64;
+                            if let Some(w) = wsola.as_mut() {
+                                *w = Wsola::new(&mixer, oc, rate, src_pos);
+                                stretch_out.clear();
+                            }
                         }
                     }
                 }
@@ -271,6 +451,7 @@ pub fn start(
         played,
         ended,
         levels,
+        rate,
         start_frame,
         loop_region,
         output: Some(output),

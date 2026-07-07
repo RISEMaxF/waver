@@ -100,6 +100,8 @@ interface Props {
   onNotice: (msg: string) => void;
   /** Live input levels for the armed track's mini meter (W-12). */
   inputLevels: ChannelLevel[];
+  /** Reports the range selection (frames) upward - enables Export selection. */
+  onRangeChange: (r: { start: number; end: number } | null) => void;
 }
 
 type Drag =
@@ -161,6 +163,7 @@ export function WaveformTimeline({
   lastTake,
   onNotice,
   inputLevels,
+  onRangeChange,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -197,6 +200,22 @@ export function WaveformTimeline({
   const [loopOn, setLoopOn] = useState(false);
   // Snap splits/trims to source zero crossings — click-free cuts (FR-2.3).
   const [zeroCross, setZeroCross] = useState(true);
+  // Toolbar width drives priority+overflow: below the threshold the edit and view
+  // clusters collapse into dropdown menus instead of scrolling out of reach.
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [tbWide, setTbWide] = useState(true);
+  useLayoutEffect(() => {
+    const el = toolbarRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setTbWide(el.clientWidth >= 980));
+    ro.observe(el);
+    setTbWide(el.clientWidth >= 980);
+    return () => ro.disconnect();
+  }, []);
+
+  // Playback speed (1 = normal); stretch preserves pitch, repitch is tape-style.
+  const [playSpeed, setPlaySpeed] = useState(1);
+  const [preservePitch, setPreservePitch] = useState(true);
   // Resizable track-controls gutter (drag the boundary), persisted per user.
   const [gutterW, setGutterW] = useState(() => {
     const w = Number(localStorage.getItem("waver-gutter-w"));
@@ -238,6 +257,18 @@ export function WaveformTimeline({
   const sr = project?.sample_rate ?? 48000;
   const clipLen = (c: ClipView) => c.source_out - c.source_in;
 
+  // Surface the range selection (in frames) to the app - enables Export selection.
+  useEffect(() => {
+    onRangeChange(
+      range
+        ? {
+            start: Math.round(range.start * sr),
+            end: Math.round(range.end * sr),
+          }
+        : null,
+    );
+  }, [range, sr, onRangeChange]);
+
   // Beat grid: seconds per step (subdivision). 4/4 assumed. `snapToGrid` rounds a time
   // to the nearest step when the grid is on (used for the playhead + edit snapping).
   const stepSec = 60 / bpm / gridDiv;
@@ -261,6 +292,8 @@ export function WaveformTimeline({
               end: Math.round(range.end * sr),
             }
           : null,
+      speed: playSpeed,
+      preservePitch,
     });
 
   // Default-arm the first track (and re-arm when the armed one is deleted) so recording
@@ -1799,6 +1832,36 @@ export function WaveformTimeline({
             onClick: () => api.splitChannels(clip.id),
           },
           {
+            label: "Normalize to -1 dB",
+            onClick: () => {
+              const lvl = peaks.current.get(clip.source_id)?.levels[0];
+              if (!lvl) return;
+              const ch = lvl.channels;
+              const b0 = Math.floor(clip.source_in / lvl.framesPerBucket);
+              const b1 = Math.min(
+                lvl.numBuckets - 1,
+                Math.floor(clip.source_out / lvl.framesPerBucket),
+              );
+              let peak = 0;
+              for (let b = b0; b <= b1; b++)
+                for (let c = 0; c < ch; c++)
+                  peak = Math.max(
+                    peak,
+                    Math.abs(lvl.mins[b * ch + c]),
+                    Math.abs(lvl.maxs[b * ch + c]),
+                  );
+              if (peak <= 0.0001) {
+                onNotice("Clip is silent - nothing to normalize.");
+                return;
+              }
+              const gain = Math.max(
+                -24,
+                Math.min(12, -1 - 20 * Math.log10(peak)),
+              );
+              api.setClipGain(clip.id, Math.round(gain * 10) / 10);
+            },
+          },
+          {
             label: "Select clip range",
             onClick: () =>
               setRange({
@@ -1878,7 +1941,7 @@ export function WaveformTimeline({
 
   return (
     <div className="waveform">
-      <div className="wave-toolbar">
+      <div className="wave-toolbar" ref={toolbarRef}>
         <div className="transport-group">
           <button
             type="button"
@@ -1962,6 +2025,37 @@ export function WaveformTimeline({
           )}
         </div>
         <MasterMeter playing={playing && !paused} />
+        <div className="speed-controls" title="Playback speed">
+          <select
+            className="speed-select"
+            value={playSpeed}
+            onChange={(e) => setPlaySpeed(Number(e.target.value))}
+            aria-label="Playback speed"
+          >
+            <option value={0.5}>0.5x</option>
+            <option value={0.75}>0.75x</option>
+            <option value={1}>1x</option>
+            <option value={1.25}>1.25x</option>
+            <option value={1.5}>1.5x</option>
+            <option value={2}>2x</option>
+          </select>
+          {playSpeed !== 1 && (
+            <button
+              type="button"
+              className={`tbtn icon-only${preservePitch ? " active" : ""}`}
+              onClick={() => setPreservePitch((p) => !p)}
+              title={
+                preservePitch
+                  ? "Preserving pitch (stretch) - click for tape-style repitch"
+                  : "Tape-style repitch (pitch follows speed) - click to preserve pitch"
+              }
+              aria-label="Preserve pitch"
+              aria-pressed={preservePitch}
+            >
+              <IconZeroCross />
+            </button>
+          )}
+        </div>
         <span className="tb-sep" />
         <button
           type="button"
@@ -1991,6 +2085,7 @@ export function WaveformTimeline({
         >
           <IconZoomOut />
         </button>
+        {tbWide && (
         <button
           type="button"
           className="tbtn icon-only"
@@ -2000,6 +2095,9 @@ export function WaveformTimeline({
         >
           <IconFit />
         </button>
+        )}
+        {tbWide && (
+        <>
         <button
           type="button"
           className="tbtn icon-only"
@@ -2106,7 +2204,69 @@ export function WaveformTimeline({
             <option value={8}>1/32</option>
           </select>
         </div>
+        </>
+        )}
         <span className="tb-sep" />
+        {!tbWide && (
+          <>
+            <button
+              type="button"
+              className="tbtn"
+              onClick={(e) => {
+                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                setCtxMenu({
+                  x: r.left,
+                  y: r.bottom + 4,
+                  items: [
+                    { label: "Split at playhead", shortcut: "S", disabled: !selected, onClick: splitAtPlayhead },
+                    { label: "Duplicate", shortcut: "⌘D", disabled: !selected, onClick: duplicateSel },
+                    { label: "Cut", shortcut: "⌘X", disabled: !selected, onClick: cutSel },
+                    { label: "Copy", shortcut: "⌘C", disabled: !selected, onClick: copySel },
+                    { label: "Paste", shortcut: "⌘V", disabled: !hasClipboard, onClick: pasteAtPlayhead },
+                    { label: "Split into mono channels", disabled: !selected, onClick: () => selected && api.splitChannels(selected) },
+                    "sep",
+                    { label: `${ripple ? "✓ " : ""}Ripple delete`, onClick: () => setRipple((r) => !r) },
+                    { label: "Delete clip", shortcut: "⌫", danger: true, disabled: !selected, onClick: () => { if (selected) { api.del(selected, ripple); setSelected(null); } } },
+                  ],
+                });
+              }}
+              title="Edit actions"
+              aria-haspopup="menu"
+            >
+              <IconCut />
+              <span>Edit</span>
+            </button>
+            <button
+              type="button"
+              className="tbtn"
+              onClick={(e) => {
+                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                setCtxMenu({
+                  x: r.left,
+                  y: r.bottom + 4,
+                  items: [
+                    { label: "Fit project", shortcut: "F", onClick: fitToWindow },
+                    { label: "Zoom to selection", shortcut: "E", disabled: !selected && !range, onClick: zoomToSelection },
+                    { label: "Fold / unfold all tracks", shortcut: "T", onClick: foldAll },
+                    "sep",
+                    { label: `${snapEnabled ? "✓ " : ""}Snap`, shortcut: "N", onClick: () => setSnapEnabled((v) => !v) },
+                    { label: `${followPlayhead ? "✓ " : ""}Follow playhead`, onClick: () => setFollowPlayhead((v) => !v) },
+                    { label: `${loopOn ? "✓ " : ""}Loop range`, disabled: !range && !loopOn, onClick: () => setLoopOn((v) => !v) },
+                    { label: `${zeroCross ? "✓ " : ""}Zero-crossing snap`, onClick: () => setZeroCross((v) => !v) },
+                    { label: `${beatGrid ? "✓ " : ""}Beat grid`, onClick: () => setBeatGrid((v) => !v) },
+                  ],
+                });
+              }}
+              title="View options"
+              aria-haspopup="menu"
+            >
+              <IconGrid />
+              <span>View</span>
+            </button>
+          </>
+        )}
+        {tbWide && (
+        <>
         <button
           type="button"
           className="tbtn icon-only"
@@ -2193,6 +2353,8 @@ export function WaveformTimeline({
           />
           Ripple
         </label>
+        </>
+        )}
         <span className="tb-sep" />
         <button
           type="button"
@@ -2257,6 +2419,15 @@ export function WaveformTimeline({
             outside the vertical scroll so the time/bar labels stay visible. */}
         <div className="wave-ruler-row">
           <div className="wave-ruler-spacer" style={{ width: gutterW }} />
+          <div
+            className="panel-resize gutter-resize"
+            role="separator"
+            aria-label="Resize track controls"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              gutterDrag.current = { x: e.clientX, w: gutterW };
+            }}
+          />
           <canvas
             ref={rulerRef}
             className="wave-ruler-canvas"

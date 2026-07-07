@@ -9,10 +9,22 @@ export function useTransport(opts: {
   startFrame: number;
   /** Loop region in frames (cycle playback); null = free-run. */
   loop?: { start: number; end: number } | null;
+  /** Playback speed (1 = normal) and whether to preserve pitch (stretch). */
+  speed?: number;
+  preservePitch?: boolean;
   sr: number;
   onPosition: (sec: number) => void;
 }) {
-  const { outputId, hasContent, startFrame, sr, onPosition, loop } = opts;
+  const {
+    outputId,
+    hasContent,
+    startFrame,
+    sr,
+    onPosition,
+    loop,
+    speed,
+    preservePitch,
+  } = opts;
   const [playing, setPlaying] = useState(false);
   const [paused, setPaused] = useState(false);
   // Where the current playback began, captured at play() time (startFrame moves with
@@ -27,14 +39,14 @@ export function useTransport(opts: {
       const frame = typeof fromFrame === "number" ? fromFrame : startFrame;
       playStartFrame.current = frame;
       onPosition(frame / sr);
-      play(outputId, frame, loop?.start, loop?.end)
+      play(outputId, frame, loop?.start, loop?.end, speed, preservePitch)
         .then(() => {
           setPlaying(true);
           setPaused(false);
         })
         .catch(() => {});
     },
-    [outputId, hasContent, startFrame, sr, onPosition, loop],
+    [outputId, hasContent, startFrame, sr, onPosition, loop, speed, preservePitch],
   );
 
   // Seek: move the playhead to `frame`; if currently playing, restart audio from there
@@ -44,9 +56,16 @@ export function useTransport(opts: {
       playStartFrame.current = frame;
       onPosition(frame / sr);
       if (playing && outputId)
-        play(outputId, frame, loop?.start, loop?.end).catch(() => {});
+        play(
+          outputId,
+          frame,
+          loop?.start,
+          loop?.end,
+          speed,
+          preservePitch,
+        ).catch(() => {});
     },
-    [playing, outputId, sr, onPosition, loop],
+    [playing, outputId, sr, onPosition, loop, speed, preservePitch],
   );
 
   const togglePause = useCallback(() => {

@@ -106,12 +106,16 @@ export const play = (
   fromFrame: number,
   loopStart?: number,
   loopEnd?: number,
+  speed?: number,
+  preservePitch?: boolean,
 ) =>
   invoke("play", {
     deviceId,
     fromFrame,
     loopStart: loopStart ?? null,
     loopEnd: loopEnd ?? null,
+    speed: speed ?? null,
+    preservePitch: preservePitch ?? null,
   });
 export const pausePlayback = (paused: boolean) =>
   invoke("pause_playback", { paused });
@@ -119,6 +123,9 @@ export const stopPlayback = () => invoke("stop_playback");
 export const previewSource = (deviceId: string, sourceId: string) =>
   invoke<void>("preview_source", { deviceId, sourceId });
 export const playbackStatus = () => invoke<PlaybackStatus>("playback_status");
+export const autosaveProject = () => invoke("autosave_project");
+export const checkRecovery = () => invoke<string | null>("check_recovery");
+export const discardRecovery = () => invoke("discard_recovery");
 /** Nearest zero crossing to `frame` (source frames) — click-free edit points. */
 export const zeroCrossing = (sourceId: string, frame: number) =>
   invoke<number>("zero_crossing", { sourceId, frame });

@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use waver_core::engine::DeviceDirection;
 use waver_core::model::{Clip, Project, Source, Track};
-use waver_engine::{enumerate_devices, start_playback, WavRecorder};
+use waver_engine::{enumerate_devices, start_playback, SpeedSpec, WavRecorder};
 
 #[test]
 #[ignore = "requires a real output device"]
@@ -45,7 +45,8 @@ fn plays_and_advances_position() {
         .expect("no output device");
     println!("playing on {} ({})", output.name, output.id);
 
-    let pb = start_playback(&project, &output.id, 0, None).expect("start_playback");
+    let pb = start_playback(&project, &output.id, 0, None, SpeedSpec::default())
+        .expect("start_playback");
     std::thread::sleep(Duration::from_millis(400));
     let pos = pb.position();
     println!(

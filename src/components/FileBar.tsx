@@ -29,6 +29,8 @@ interface Props {
   markDirty: () => void;
   markClean: () => void;
   onError: (msg: string) => void; // failures surface as dismissible toasts (W-05)
+  /** Current timeline range selection (frames) - enables "Export selection". */
+  exportRange: { start: number; end: number } | null;
 }
 
 /** Confirm discarding unsaved changes before a destructive project switch (F1). */
@@ -49,6 +51,7 @@ export function FileBar({
   markDirty,
   markClean,
   onError,
+  exportRange,
 }: Props) {
   const [format, setFormat] = useState<ExportFormat>("wav");
   const [bitDepth, setBitDepth] = useState<ExportBitDepth>("int24");
@@ -312,6 +315,29 @@ export function FileBar({
                   <option value="float32">32-bit float</option>
                 </select>
               </label>
+              {exportRange && (
+                <button
+                  type="button"
+                  className="tbtn export-go"
+                  disabled={busy}
+                  onClick={() => {
+                    setExportOpen(false);
+                    run("Export", async () => {
+                      const p = await exportProjectDialog(
+                        format,
+                        bitDepth,
+                        sampleRate,
+                        2,
+                        exportRange,
+                      );
+                      if (p) setMsg(`Exported selection ${basename(p)}`);
+                    });
+                  }}
+                >
+                  <IconExport />
+                  <span>Export selection</span>
+                </button>
+              )}
               <button
                 type="button"
                 className="tbtn export-go"

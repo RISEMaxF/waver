@@ -4,7 +4,13 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { useAudio } from "./audio/useAudio";
 import { useProject } from "./audio/useProject";
-import { setRecordTarget } from "./audio/project";
+import {
+  autosaveProject,
+  checkRecovery,
+  discardRecovery,
+  setRecordTarget,
+} from "./audio/project";
+import { loadProjectFromPath } from "./audio/files";
 import { AudioControls } from "./components/AudioControls";
 import { FileBar } from "./components/FileBar";
 import { MediaPool } from "./components/MediaPool";
@@ -166,6 +172,10 @@ function App() {
     text: string;
   } | null>(null);
   const [fileErr, setFileErr] = useState<string | null>(null);
+  const [exportRange, setExportRange] = useState<{
+    start: number;
+    end: number;
+  } | null>(null);
   const audio = useAudio();
   const project = useProject();
   // Latest record target (armed track + playhead frame), kept fresh by the timeline so
@@ -183,6 +193,45 @@ function App() {
       .then(setInfo)
       .catch(() => {});
   }, []);
+
+  // Crash recovery: offer to restore the autosaved snapshot from a crashed or
+  // force-quit session, then keep autosaving (debounced) while there are unsaved
+  // edits. A clean close discards the snapshot, so the prompt only ever appears
+  // after an unclean exit.
+  const recoveryChecked = useRef(false);
+  useEffect(() => {
+    if (recoveryChecked.current) return;
+    recoveryChecked.current = true;
+    (async () => {
+      try {
+        const rec = await checkRecovery();
+        if (!rec) return;
+        const restore = await ask(
+          "Waver closed with unsaved work. Restore your last session?",
+          { title: "Restore session", kind: "info" },
+        );
+        if (restore) {
+          await loadProjectFromPath(rec);
+          project.markDirty();
+          project.refresh();
+        } else {
+          await discardRecovery();
+        }
+      } catch {
+        /* recovery is best-effort */
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (!project.dirty) return;
+    const id = setTimeout(() => autosaveProject().catch(() => {}), 3000);
+    const iv = setInterval(() => autosaveProject().catch(() => {}), 20000);
+    return () => {
+      clearTimeout(id);
+      clearInterval(iv);
+    };
+  }, [project.dirty, project.project]);
 
   // Guard the window close / quit against unsaved changes (F1). Registered once; reads
   // the live dirty flag via a ref.
@@ -306,6 +355,7 @@ function App() {
             markDirty={project.markDirty}
             markClean={project.markClean}
             onError={setFileErr}
+            exportRange={exportRange}
           />
         </div>
         <div className="topbar-right">
@@ -369,6 +419,7 @@ function App() {
           lastTake={lastTake}
           onNotice={(text) => setPoolMsg({ kind: "notice", text })}
           inputLevels={audio.levels}
+          onRangeChange={setExportRange}
         />
       </main>
     </div>
