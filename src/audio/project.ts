@@ -15,6 +15,8 @@ export interface ClipView {
   fade_out_len: number;
   fade_in_curve: string;
   fade_out_curve: string;
+  group: string | null;
+  locked: boolean;
 }
 
 export type FadeCurve = "linear" | "equal_power" | "log" | "s_curve";
@@ -69,6 +71,12 @@ export const renameMarker = (markerId: string, name: string) =>
   invoke<ProjectView>("rename_marker", { markerId, name });
 export const deleteMarker = (markerId: string) =>
   invoke<ProjectView>("delete_marker", { markerId });
+export const groupClips = (clipIds: string[]) =>
+  invoke<ProjectView>("group_clips", { clipIds });
+export const ungroupClips = (clipIds: string[]) =>
+  invoke<ProjectView>("ungroup_clips", { clipIds });
+export const setClipsLocked = (clipIds: string[], locked: boolean) =>
+  invoke<ProjectView>("set_clips_locked", { clipIds, locked });
 export const moveClips = (clipIds: string[], delta: number) =>
   invoke<ProjectView>("move_clips", { clipIds, delta });
 export const deleteClips = (clipIds: string[]) =>
@@ -101,7 +109,7 @@ export const duplicateClip = (clipId: string, timelineStart: number) =>
 export const setClipName = (clipId: string, name: string) =>
   invoke<ProjectView>("set_clip_name", { clipId, name });
 /** A clip's paste spec — every ClipView field except its id. */
-export type ClipSpec = Omit<ClipView, "id">;
+export type ClipSpec = Omit<ClipView, "id" | "group" | "locked">;
 export const pasteClip = (spec: ClipSpec, trackId: string) =>
   invoke<ProjectView>("paste_clip", { spec, trackId });
 export const setRecordTarget = (trackId: string | null, startFrame: number) =>

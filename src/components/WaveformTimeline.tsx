@@ -226,6 +226,38 @@ export function WaveformTimeline({
     return () => ro.disconnect();
   }, []);
 
+  // Resizable ruler height (drag the grip under it), persisted per user.
+  const [rulerH, setRulerH] = useState(() => {
+    const v = Number(localStorage.getItem("waver-ruler-h"));
+    return v >= 20 && v <= 64 ? v : RULER_HEIGHT;
+  });
+  const rulerResize = useRef<{ y: number; h: number } | null>(null);
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!rulerResize.current) return;
+      setRulerH(
+        Math.min(
+          64,
+          Math.max(20, rulerResize.current.h + (e.clientY - rulerResize.current.y)),
+        ),
+      );
+    };
+    const onUp = () => {
+      if (!rulerResize.current) return;
+      rulerResize.current = null;
+      setRulerH((h) => {
+        localStorage.setItem("waver-ruler-h", String(h));
+        return h;
+      });
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
   // Marker rename overlay (inline input over the ruler) + live marker drag.
   const [markerEdit, setMarkerEdit] = useState<{
     id: string;
@@ -568,13 +600,13 @@ export function WaveformTimeline({
     const rc = rulerRef.current;
     if (rc) {
       rc.width = width * dpr;
-      rc.height = RULER_HEIGHT * dpr;
-      rc.style.height = `${RULER_HEIGHT}px`;
+      rc.height = rulerH * dpr;
+      rc.style.height = `${rulerH}px`;
       const rx = rc.getContext("2d");
       if (rx) {
         rx.setTransform(dpr, 0, 0, dpr, 0, 0);
         rx.fillStyle = th.lane;
-        rx.fillRect(0, 0, width, RULER_HEIGHT);
+        rx.fillRect(0, 0, width, rulerH);
         // Range/loop band: the loop region's home on the ruler (Ableton-style).
         // Drawn under the tick labels; body drags to move, grip tabs resize.
         if (range) {
@@ -582,11 +614,11 @@ export function WaveformTimeline({
           const bx1 = (range.end - scrollSec) * pps;
           if (bx1 > 0 && bx0 < width) {
             rx.fillStyle = hexA(th.clipEdgeSel, loopOn ? 0.55 : 0.3);
-            rx.fillRect(bx0, 0, bx1 - bx0, RULER_HEIGHT);
+            rx.fillRect(bx0, 0, bx1 - bx0, rulerH);
             // Solid grip tabs at both ends.
             rx.fillStyle = th.clipEdgeSel;
-            rx.fillRect(Math.round(bx0), 0, 5, RULER_HEIGHT);
-            rx.fillRect(Math.round(bx1) - 5, 0, 5, RULER_HEIGHT);
+            rx.fillRect(Math.round(bx0), 0, 5, rulerH);
+            rx.fillRect(Math.round(bx1) - 5, 0, 5, rulerH);
             if (loopOn && bx1 - bx0 > 46) {
               // Cycling: label the band so the active loop is unambiguous.
               rx.fillStyle = "#fff";
@@ -601,8 +633,8 @@ export function WaveformTimeline({
           rx.strokeStyle = th.grid;
           rx.lineWidth = 1;
           rx.beginPath();
-          rx.moveTo(x + 0.5, RULER_HEIGHT - 6);
-          rx.lineTo(x + 0.5, RULER_HEIGHT);
+          rx.moveTo(x + 0.5, rulerH - 6);
+          rx.lineTo(x + 0.5, rulerH);
           rx.stroke();
         };
         if (!beatGrid) {
@@ -615,8 +647,8 @@ export function WaveformTimeline({
             const x = Math.round((t - scrollSec) * pps);
             rx.strokeStyle = th.grid;
             rx.beginPath();
-            rx.moveTo(x + 0.5, RULER_HEIGHT - 3);
-            rx.lineTo(x + 0.5, RULER_HEIGHT);
+            rx.moveTo(x + 0.5, rulerH - 3);
+            rx.lineTo(x + 0.5, rulerH);
             rx.stroke();
           }
           const first = Math.ceil(scrollSec / step) * step;
@@ -651,22 +683,22 @@ export function WaveformTimeline({
           if (mx < -40 || mx > width + 40) continue;
           rx.fillStyle = th.snap;
           rx.beginPath();
-          rx.moveTo(mx, RULER_HEIGHT - 6);
-          rx.lineTo(mx - 4, RULER_HEIGHT - 12);
-          rx.lineTo(mx - 4, RULER_HEIGHT - 20);
-          rx.lineTo(mx + 4, RULER_HEIGHT - 20);
-          rx.lineTo(mx + 4, RULER_HEIGHT - 12);
+          rx.moveTo(mx, rulerH - 6);
+          rx.lineTo(mx - 4, rulerH - 12);
+          rx.lineTo(mx - 4, rulerH - 20);
+          rx.lineTo(mx + 4, rulerH - 20);
+          rx.lineTo(mx + 4, rulerH - 12);
           rx.closePath();
           rx.fill();
           rx.fillStyle = th.snap;
           rx.font = th.smallFont;
-          rx.fillText(m.name, mx + 6, RULER_HEIGHT - 13);
+          rx.fillText(m.name, mx + 6, rulerH - 13);
         }
         // bottom divider + playhead handle
         rx.strokeStyle = th.grid;
         rx.beginPath();
-        rx.moveTo(0, RULER_HEIGHT - 0.5);
-        rx.lineTo(width, RULER_HEIGHT - 0.5);
+        rx.moveTo(0, rulerH - 0.5);
+        rx.lineTo(width, rulerH - 0.5);
         rx.stroke();
         // Start point: hollow marker (the second playhead - where play begins).
         const spx = (startPointSec - scrollSec) * pps;
@@ -847,6 +879,26 @@ export function WaveformTimeline({
           ctx.textBaseline = "middle";
           ctx.fillText(clip.name, x0 + 5, drawTop + labelH / 2 + 0.5);
           ctx.restore();
+        }
+
+        // Status glyphs on the label strip: padlock (locked), link (grouped).
+        if (w > 40 && (clip.locked || clip.group)) {
+          let gx = rx0 + rw - 12;
+          ctx.strokeStyle = labelColorFor(tc);
+          ctx.lineWidth = 1.2;
+          if (clip.locked) {
+            ctx.strokeRect(gx, drawTop + 5, 7, 6);
+            ctx.beginPath();
+            ctx.arc(gx + 3.5, drawTop + 5, 2.6, Math.PI, 0);
+            ctx.stroke();
+            gx -= 12;
+          }
+          if (clip.group) {
+            ctx.beginPath();
+            ctx.arc(gx + 2.5, drawTop + 8, 2.4, 0, Math.PI * 2);
+            ctx.arc(gx + 6.5, drawTop + 8, 2.4, 0, Math.PI * 2);
+            ctx.stroke();
+          }
         }
 
         // Fade envelopes (live length during a fade drag).
@@ -1281,9 +1333,24 @@ export function WaveformTimeline({
         return;
       }
       setSelected(id);
-      // Dragging a member of the multi-selection moves the whole group - only a
-      // click on an unselected clip collapses the selection to that clip.
-      if (!multiSel.has(id)) setMultiSel(new Set());
+      // Bundled clips select as one; otherwise a click on an unselected clip
+      // collapses the multi-selection (dragging a member moves the whole group).
+      if (!multiSel.has(id)) {
+        if (hit.clip.group) {
+          const members = new Set<string>();
+          for (const t of project?.tracks ?? [])
+            for (const c of t.clips)
+              if (c.group === hit.clip.group) members.add(c.id);
+          setMultiSel(members);
+        } else {
+          setMultiSel(new Set());
+        }
+      }
+      if (hit.clip.locked) {
+        // Locked: selectable, not editable - no drag of any kind.
+        tick((n) => n + 1);
+        return;
+      }
       if (hit.zone === "trim-start")
         drag.current = { kind: "trim-start", clipId: id };
       else if (hit.zone === "trim-end")
@@ -1906,6 +1973,27 @@ export function WaveformTimeline({
     setSelected(null);
   }, [multiSel, api]);
 
+  // Bundle / unbundle / lock the current selection (single undoable edits).
+  const selIds = useCallback((): string[] => {
+    const ids = new Set(multiSel);
+    if (selected) ids.add(selected);
+    return [...ids];
+  }, [multiSel, selected]);
+  const groupSel = useCallback(() => {
+    const ids = selIds();
+    if (ids.length >= 2) api.groupClips(ids);
+  }, [selIds, api]);
+  const ungroupSel = useCallback(() => {
+    const ids = selIds();
+    if (ids.length) api.ungroupClips(ids);
+  }, [selIds, api]);
+  const toggleLockSel = useCallback(() => {
+    const ids = selIds();
+    if (!ids.length || !project) return;
+    const anyUnlocked = ids.some((id) => !findClip(project, id)?.locked);
+    api.setClipsLocked(ids, anyUnlocked);
+  }, [selIds, project, api]);
+
   // Space/Play past the content end would play instant silence and stop - start
   // from the start point (or 0) instead, which also answers "what plays after a
   // clip finished": the same spot you started from.
@@ -1986,6 +2074,9 @@ export function WaveformTimeline({
         Math.round(playheadSec * sr),
         `M${(project?.markers.length ?? 0) + 1}`,
       ),
+    groupSel,
+    ungroupSel,
+    toggleLockSel,
     toggleShortcuts: () => setShowShortcuts((s) => !s),
     toggleSnap: () => setSnapEnabled((s) => !s),
   });
@@ -2027,6 +2118,9 @@ export function WaveformTimeline({
         Math.round(playheadSec * sr),
         `M${(project?.markers.length ?? 0) + 1}`,
       ),
+    groupSel,
+    ungroupSel,
+    toggleLockSel,
     toggleShortcuts: () => setShowShortcuts((s) => !s),
     toggleSnap: () => setSnapEnabled((s) => !s),
   };
@@ -2069,6 +2163,12 @@ export function WaveformTimeline({
       } else if (mod && key === "j") {
         e.preventDefault();
         k.mergeSel();
+      } else if (mod && key === "g") {
+        e.preventDefault();
+        e.shiftKey ? k.ungroupSel() : k.groupSel();
+      } else if (mod && key === "l") {
+        e.preventDefault();
+        k.toggleLockSel();
       } else if (e.key === "Delete" || e.key === "Backspace") {
         if (k.selected || k.hasMulti) {
           e.preventDefault();
@@ -2226,9 +2326,21 @@ export function WaveformTimeline({
                   shortcut: "⌘J",
                   onClick: mergeSel,
                 },
+                {
+                  label: clip.group
+                    ? "Ungroup clips"
+                    : `Group ${multiSel.size} clips`,
+                  shortcut: clip.group ? "⇧⌘G" : "⌘G",
+                  onClick: clip.group ? ungroupSel : groupSel,
+                },
                 "sep",
               ] as const)
             : []),
+          {
+            label: clip.locked ? "Unlock clip" : "Lock clip",
+            shortcut: "⌘L",
+            onClick: toggleLockSel,
+          },
           {
             label: "Normalize to -1 dB",
             onClick: () => {
@@ -2502,16 +2614,6 @@ export function WaveformTimeline({
             </button>
           )}
         </div>
-        <span className="tb-sep" />
-        <button
-          type="button"
-          className="tbtn"
-          onClick={() => api.addTrack()}
-          title="Add an empty track"
-        >
-          <IconPlus />
-          <span>Track</span>
-        </button>
         <span className="tb-sep" />
         <button
           type="button"
@@ -2967,7 +3069,17 @@ export function WaveformTimeline({
               }}
             />
           )}
-          <div className="wave-ruler-spacer" style={{ width: gutterW }} />
+          <div className="wave-ruler-spacer" style={{ width: gutterW }}>
+            <button
+              type="button"
+              className="tbtn sm corner-add-track"
+              onClick={() => api.addTrack()}
+              title="Add an empty track"
+            >
+              <IconPlus />
+              <span>Track</span>
+            </button>
+          </div>
           <div
             className="panel-resize gutter-resize"
             role="separator"
@@ -2991,6 +3103,16 @@ export function WaveformTimeline({
             onContextMenu={onRulerContext}
           />
         </div>
+        <div
+          className="ruler-vresize"
+          role="separator"
+          aria-label="Resize time ruler"
+          title="Drag to resize the time ruler"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            rulerResize.current = { y: e.clientY, h: rulerH };
+          }}
+        />
         <div className="wave-scroll">
           <TrackHeaders
             project={project}
@@ -3180,6 +3302,7 @@ function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
         ["Drag empty lane", "Select a time range (snaps to clip edges)"],
         ["Double-click clip", "Select exactly the clip's range"],
         ["Shift-click clips", "Multi-select (drag moves all, ⌘J merges)"],
+        ["⌘G / ⇧⌘G / ⌘L", "Group / ungroup / lock clips"],
         ["M", "Add a marker at the playhead"],
         ["Shift + R", "Start / stop recording"],
         ["Esc", "Stop playback · clear selection"],

@@ -181,6 +181,12 @@ pub struct Clip {
     pub gain_db: f32,
     pub fade_in: FadeSpec,
     pub fade_out: FadeSpec,
+    /// Clips sharing a group id select and move as a bundle. `None` = ungrouped.
+    #[serde(default)]
+    pub group: Option<Uuid>,
+    /// Locked clips refuse edits (move/trim/split/delete/fades) until unlocked.
+    #[serde(default)]
+    pub locked: bool,
 }
 
 impl Clip {
@@ -202,6 +208,8 @@ impl Clip {
             gain_db: 0.0,
             fade_in: FadeSpec::NONE,
             fade_out: FadeSpec::NONE,
+            group: None,
+            locked: false,
         }
     }
 

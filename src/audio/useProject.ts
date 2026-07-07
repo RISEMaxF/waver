@@ -61,6 +61,10 @@ export function useProject() {
     deleteClips: (ids: string[]) => run(api.deleteClips(ids)),
     moveClips: (ids: string[], delta: number) =>
       run(api.moveClips(ids, delta)),
+    groupClips: (ids: string[]) => run(api.groupClips(ids)),
+    ungroupClips: (ids: string[]) => run(api.ungroupClips(ids)),
+    setClipsLocked: (ids: string[], locked: boolean) =>
+      run(api.setClipsLocked(ids, locked)),
     addMarker: (frame: number, name: string) => run(api.addMarker(frame, name)),
     moveMarker: (id: string, frame: number) => run(api.moveMarker(id, frame)),
     renameMarker: (id: string, name: string) =>

@@ -161,6 +161,8 @@ pub struct ClipView {
     pub fade_out_len: u64,
     pub fade_in_curve: String,
     pub fade_out_curve: String,
+    pub group: Option<String>,
+    pub locked: bool,
 }
 
 fn curve_str(c: FadeCurve) -> String {
@@ -224,6 +226,8 @@ impl ProjectView {
                             fade_out_len: c.fade_out.len_frames,
                             fade_in_curve: curve_str(c.fade_in.curve),
                             fade_out_curve: curve_str(c.fade_out.curve),
+                            group: c.group.map(|g| g.to_string()),
+                            locked: c.locked,
                         })
                         .collect(),
                 })
@@ -662,6 +666,44 @@ pub fn delete_range(
     apply_edit(&state, |p| p.delete_range(start, end, ripple).map(|_| ()))
 }
 
+/// Bundle / unbundle / lock clips - single undoable edits.
+#[tauri::command]
+pub fn group_clips(
+    state: State<'_, AudioState>,
+    clip_ids: Vec<String>,
+) -> Result<ProjectView, String> {
+    let ids: Vec<_> = clip_ids
+        .iter()
+        .map(|s| parse_id(s))
+        .collect::<Result<_, _>>()?;
+    apply_edit(&state, |p| p.group_clips(&ids))
+}
+
+#[tauri::command]
+pub fn ungroup_clips(
+    state: State<'_, AudioState>,
+    clip_ids: Vec<String>,
+) -> Result<ProjectView, String> {
+    let ids: Vec<_> = clip_ids
+        .iter()
+        .map(|s| parse_id(s))
+        .collect::<Result<_, _>>()?;
+    apply_edit(&state, |p| p.ungroup_clips(&ids))
+}
+
+#[tauri::command]
+pub fn set_clips_locked(
+    state: State<'_, AudioState>,
+    clip_ids: Vec<String>,
+    locked: bool,
+) -> Result<ProjectView, String> {
+    let ids: Vec<_> = clip_ids
+        .iter()
+        .map(|s| parse_id(s))
+        .collect::<Result<_, _>>()?;
+    apply_edit(&state, |p| p.set_clips_locked(&ids, locked))
+}
+
 /// Move several clips by one delta (group drag) - a single undoable edit.
 #[tauri::command]
 pub fn move_clips(
@@ -802,6 +844,8 @@ pub fn merge_clips(
             gain_db: 0.0,
             fade_in: Default::default(),
             fade_out: Default::default(),
+            group: None,
+            locked: false,
         };
         clip.name = name.clone();
         track.clips.push(clip);

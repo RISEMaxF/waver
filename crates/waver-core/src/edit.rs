@@ -82,6 +82,7 @@ impl Project {
     /// Split a clip at an absolute timeline frame into two contiguous clips
     /// referencing the same source (spec FR-4.3). Returns `(left_id, right_id)`.
     pub fn split_clip(&mut self, clip_id: Uuid, frame: u64) -> Result<(Uuid, Uuid), EditError> {
+        self.assert_unlocked(clip_id)?;
         let (ti, ci) = self
             .locate_clip(clip_id)
             .ok_or(EditError::ClipNotFound(clip_id))?;
@@ -97,6 +98,7 @@ impl Project {
     /// Trim the right edge to end at `new_timeline_end` (spec FR-4.4). Adjusts
     /// `source_out` only; does not move other clips. Clamped to source bounds.
     pub fn trim_clip_end(&mut self, clip_id: Uuid, new_timeline_end: u64) -> Result<(), EditError> {
+        self.assert_unlocked(clip_id)?;
         let (ti, ci) = self
             .locate_clip(clip_id)
             .ok_or(EditError::ClipNotFound(clip_id))?;
@@ -123,6 +125,7 @@ impl Project {
         clip_id: Uuid,
         new_timeline_start: u64,
     ) -> Result<(), EditError> {
+        self.assert_unlocked(clip_id)?;
         let (ti, ci) = self
             .locate_clip(clip_id)
             .ok_or(EditError::ClipNotFound(clip_id))?;
@@ -185,6 +188,56 @@ impl Project {
         Ok(())
     }
 
+    fn assert_unlocked(&self, clip_id: Uuid) -> Result<(), EditError> {
+        if let Some((ti, ci)) = self.locate_clip(clip_id) {
+            if self.tracks[ti].clips[ci].locked {
+                return Err(EditError::Invalid("clip is locked".into()));
+            }
+        }
+        Ok(())
+    }
+
+    /// Bundle clips: they share a fresh group id and select/move together.
+    pub fn group_clips(&mut self, ids: &[Uuid]) -> Result<(), EditError> {
+        let gid = Uuid::new_v4();
+        let mut n = 0;
+        for t in &mut self.tracks {
+            for c in &mut t.clips {
+                if ids.contains(&c.id) {
+                    c.group = Some(gid);
+                    n += 1;
+                }
+            }
+        }
+        if n < 2 {
+            return Err(EditError::Invalid("group needs at least two clips".into()));
+        }
+        Ok(())
+    }
+
+    pub fn ungroup_clips(&mut self, ids: &[Uuid]) -> Result<(), EditError> {
+        for t in &mut self.tracks {
+            for c in &mut t.clips {
+                if ids.contains(&c.id) {
+                    c.group = None;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Lock/unlock clips (locked clips refuse edits until unlocked).
+    pub fn set_clips_locked(&mut self, ids: &[Uuid], locked: bool) -> Result<(), EditError> {
+        for t in &mut self.tracks {
+            for c in &mut t.clips {
+                if ids.contains(&c.id) {
+                    c.locked = locked;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Move several clips by the same signed frame delta as ONE edit (group drag).
     /// The delta is clamped so the earliest clip cannot go below zero; overlap
     /// safety is enforced by the caller's validate() at commit time.
@@ -211,7 +264,7 @@ impl Project {
         for t in &mut self.tracks {
             let mut touched = false;
             for c in &mut t.clips {
-                if ids.contains(&c.id) {
+                if ids.contains(&c.id) && !c.locked {
                     c.timeline_start = (c.timeline_start as i64 + delta) as u64;
                     touched = true;
                 }
@@ -229,7 +282,7 @@ impl Project {
         let mut n = 0;
         for track in &mut self.tracks {
             let before = track.clips.len();
-            track.clips.retain(|c| !ids.contains(&c.id));
+            track.clips.retain(|c| !ids.contains(&c.id) || c.locked);
             n += before - track.clips.len();
         }
         Ok(n)
@@ -299,6 +352,7 @@ impl Project {
         new_track_id: Uuid,
         new_timeline_start: u64,
     ) -> Result<(), EditError> {
+        self.assert_unlocked(clip_id)?;
         let (ti, ci) = self
             .locate_clip(clip_id)
             .ok_or(EditError::ClipNotFound(clip_id))?;
@@ -317,6 +371,7 @@ impl Project {
 
     /// Delete a clip (spec FR-4.5).
     pub fn delete_clip(&mut self, clip_id: Uuid) -> Result<(), EditError> {
+        self.assert_unlocked(clip_id)?;
         let (ti, ci) = self
             .locate_clip(clip_id)
             .ok_or(EditError::ClipNotFound(clip_id))?;
@@ -327,6 +382,7 @@ impl Project {
     /// Ripple-delete: remove a clip and shift later clips on the same track left by
     /// the deleted clip's length, preserving their relative spacing (spec FR-4.5).
     pub fn ripple_delete_clip(&mut self, clip_id: Uuid) -> Result<(), EditError> {
+        self.assert_unlocked(clip_id)?;
         let (ti, ci) = self
             .locate_clip(clip_id)
             .ok_or(EditError::ClipNotFound(clip_id))?;
@@ -481,6 +537,8 @@ impl Project {
         let mut copy = self.tracks[ti].clips[ci].clone();
         copy.id = Uuid::new_v4();
         copy.timeline_start = timeline_start;
+        copy.group = None;
+        copy.locked = false;
         let new_id = copy.id;
         self.tracks[ti].clips.push(copy);
         Ok(new_id)
