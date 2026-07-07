@@ -248,7 +248,7 @@ function TrackName({
   return (
     <span
       className="track-name"
-      title="Double-click to rename"
+      title={`${name} — double-click to rename`}
       onDoubleClick={() => {
         setDraft(name);
         setEditing(true);

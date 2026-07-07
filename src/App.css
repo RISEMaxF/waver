@@ -1195,6 +1195,12 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
 .track-head.collapsed .track-head-top {
   flex: 1;
   min-width: 0;
+  justify-content: flex-start;
+}
+
+.track-head.collapsed .track-name {
+  flex: 1;
+  min-width: 0;
 }
 
 .track-head.collapsed .track-remove {
@@ -1203,6 +1209,13 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
 
 .track-head.collapsed .track-toggles {
   flex-shrink: 0;
+  gap: 3px;
+}
+
+/* Compact the R/M/S buttons in the folded row so the name keeps readable width. */
+.track-head.collapsed .ts-btn {
+  width: 24px;
+  height: 20px;
 }
 
 .track-toggles {
