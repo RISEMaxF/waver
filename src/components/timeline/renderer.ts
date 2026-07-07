@@ -83,7 +83,7 @@ export function labelColorFor(hex: string): string {
 // ---- geometry ----
 export const TRACK_HEIGHT = 112;
 export const COLLAPSED_H = 34; // collapsed track lane height
-export const RULER_HEIGHT = 22;
+export const RULER_HEIGHT = 26;
 export const EDGE_PX = 6;
 export const SNAP_PX = 8;
 export const MIN_PPS = 2;

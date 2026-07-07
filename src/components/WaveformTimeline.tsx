@@ -575,6 +575,26 @@ export function WaveformTimeline({
         rx.setTransform(dpr, 0, 0, dpr, 0, 0);
         rx.fillStyle = th.lane;
         rx.fillRect(0, 0, width, RULER_HEIGHT);
+        // Range/loop band: the loop region's home on the ruler (Ableton-style).
+        // Drawn under the tick labels; body drags to move, grip tabs resize.
+        if (range) {
+          const bx0 = (range.start - scrollSec) * pps;
+          const bx1 = (range.end - scrollSec) * pps;
+          if (bx1 > 0 && bx0 < width) {
+            rx.fillStyle = hexA(th.clipEdgeSel, loopOn ? 0.55 : 0.3);
+            rx.fillRect(bx0, 0, bx1 - bx0, RULER_HEIGHT);
+            // Solid grip tabs at both ends.
+            rx.fillStyle = th.clipEdgeSel;
+            rx.fillRect(Math.round(bx0), 0, 5, RULER_HEIGHT);
+            rx.fillRect(Math.round(bx1) - 5, 0, 5, RULER_HEIGHT);
+            if (loopOn && bx1 - bx0 > 46) {
+              // Cycling: label the band so the active loop is unambiguous.
+              rx.fillStyle = "#fff";
+              rx.font = th.smallFont;
+              rx.fillText("LOOP", (bx0 + bx1) / 2 - 12, 9);
+            }
+          }
+        }
         rx.fillStyle = th.ruler;
         rx.font = th.labelFont;
         const tick = (x: number) => {
@@ -641,19 +661,6 @@ export function WaveformTimeline({
           rx.fillStyle = th.snap;
           rx.font = th.smallFont;
           rx.fillText(m.name, mx + 6, RULER_HEIGHT - 13);
-        }
-        // Range/loop band on the ruler: draggable body + edge grips (the ruler is
-        // the loop region's home, Ableton-style).
-        if (range) {
-          const bx0 = (range.start - scrollSec) * pps;
-          const bx1 = (range.end - scrollSec) * pps;
-          if (bx1 > 0 && bx0 < width) {
-            rx.fillStyle = hexA(th.clipEdgeSel, loopOn ? 0.4 : 0.22);
-            rx.fillRect(bx0, 0, bx1 - bx0, RULER_HEIGHT - 6);
-            rx.fillStyle = th.clipEdgeSel;
-            rx.fillRect(Math.round(bx0), 0, 2, RULER_HEIGHT - 6);
-            rx.fillRect(Math.round(bx1) - 2, 0, 2, RULER_HEIGHT - 6);
-          }
         }
         // bottom divider + playhead handle
         rx.strokeStyle = th.grid;
