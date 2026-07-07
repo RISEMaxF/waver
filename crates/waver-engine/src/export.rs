@@ -360,8 +360,7 @@ fn write_mp3(
     let mut enc = b.build().map_err(|e| be(format!("lame build: {e}")))?;
     let pcm: Vec<i16> = mixed.iter().map(|&s| f32_to_i16(s)).collect();
     let nframes = pcm.len() / ch as usize;
-    let mut out: Vec<u8> = Vec::new();
-    out.reserve(mp3lame_encoder::max_required_buffer_size(nframes));
+    let mut out: Vec<u8> = Vec::with_capacity(mp3lame_encoder::max_required_buffer_size(nframes));
     let n = if ch == 1 {
         enc.encode(MonoPcm(&pcm), out.spare_capacity_mut())
             .map_err(|e| be(format!("lame encode: {e}")))?
@@ -371,8 +370,7 @@ fn write_mp3(
     };
     // SAFETY: encode() wrote exactly n bytes into the spare capacity.
     unsafe { out.set_len(n) };
-    let mut tail: Vec<u8> = Vec::new();
-    tail.reserve(7200);
+    let mut tail: Vec<u8> = Vec::with_capacity(7200);
     let n2 = enc
         .flush::<FlushNoGap>(tail.spare_capacity_mut())
         .map_err(|e| be(format!("lame flush: {e}")))?;
@@ -398,7 +396,7 @@ fn write_opus(
     } else {
         mixed.to_vec()
     };
-    let mut enc = Encoder::new(
+    let enc = Encoder::new(
         SampleRate::Hz48000,
         if ch == 1 {
             Channels::Mono

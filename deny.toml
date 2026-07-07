@@ -57,3 +57,6 @@ allow-wildcard-paths = true
 # Only crates.io by default.
 unknown-registry = "deny"
 unknown-git = "deny"
+# The single sanctioned git dependency: cpal patched to upstream master for the
+# windows/windows-core minor-version alignment fix (pinned by rev in Cargo.toml).
+allow-git = ["https://github.com/RustAudio/cpal"]

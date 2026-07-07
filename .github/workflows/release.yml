@@ -15,12 +15,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Each Mac arch builds NATIVELY (macos-latest is arm64, macos-13 is
+          # Intel): the autotools sys-crates (opus/lame/vorbis) compile host-arch
+          # objects and cannot cross-compile between Mac architectures.
           - platform: macos-latest
-            target: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin
-          - platform: macos-latest
-            target: x86_64-apple-darwin
-            args: --target x86_64-apple-darwin
+            target: ""
+            args: ""
+          - platform: macos-13
+            target: ""
+            args: ""
           - platform: windows-latest
             target: ""
             args: ""
@@ -38,10 +41,6 @@ jobs:
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
-
-      - name: Add macOS target
-        if: matrix.target != ''
-        run: rustup target add ${{ matrix.target }}
 
       - uses: swatinem/rust-cache@v2
         with:
