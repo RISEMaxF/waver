@@ -28,6 +28,8 @@ interface Props {
   onToggleCollapse: (id: string) => void;
   /** Live input levels — drawn as a mini meter on the armed track (W-12). */
   inputLevels: ChannelLevel[];
+  /** Gutter width (user-resizable; the ruler spacer mirrors it). */
+  width: number;
 }
 
 /** Tiny horizontal level bar in the armed track's header: signal + clip feedback in
@@ -54,6 +56,7 @@ function MiniMeter({ levels }: { levels: ChannelLevel[] }) {
 export function TrackHeaders({
   project,
   api,
+  width,
   armedTrackId,
   onToggleArm,
   collapsed,
@@ -87,7 +90,7 @@ export function TrackHeaders({
   };
 
   return (
-    <div className="track-headers" aria-label="Track controls">
+    <div className="track-headers" aria-label="Track controls" style={{ width }}>
       {ctxMenu && (
         <ContextMenu menu={ctxMenu} onClose={() => setCtxMenu(null)} />
       )}
@@ -345,8 +348,8 @@ function TrackName({
       className="track-name"
       role="button"
       tabIndex={0}
-      title={`${name} — double-click or press Enter to rename`}
-      aria-label={`${name} — press Enter to rename`}
+      title={`${name} - double-click or press Enter to rename`}
+      aria-label={`${name} - press Enter to rename`}
       onDoubleClick={startEdit}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === "F2") {

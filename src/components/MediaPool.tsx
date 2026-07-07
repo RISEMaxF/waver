@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { importToPoolDialog } from "../audio/files";
 import { playbackStatus, previewSource, stopPlayback } from "../audio/project";
 import type { ProjectView, SourceView } from "../audio/project";
@@ -33,6 +33,36 @@ export function MediaPool({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Resizable drawer width (drag the right edge), persisted per user.
+  const [width, setWidth] = useState(() => {
+    const w = Number(localStorage.getItem("waver-pool-w"));
+    return w >= 160 && w <= 420 ? w : 200;
+  });
+  const resize = useRef<{ x: number; w: number } | null>(null);
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!resize.current) return;
+      const w = Math.min(
+        420,
+        Math.max(160, resize.current.w + (e.clientX - resize.current.x)),
+      );
+      setWidth(w);
+    };
+    const onUp = () => {
+      if (!resize.current) return;
+      resize.current = null;
+      setWidth((w) => {
+        localStorage.setItem("waver-pool-w", String(w));
+        return w;
+      });
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const sources = project?.sources ?? [];
 
@@ -101,7 +131,16 @@ export function MediaPool({
   }
 
   return (
-    <div className="media-pool" aria-label="Media pool">
+    <div className="media-pool" aria-label="Media pool" style={{ width }}>
+      <div
+        className="panel-resize pool-resize"
+        role="separator"
+        aria-label="Resize media pool"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          resize.current = { x: e.clientX, w: width };
+        }}
+      />
       <div className="pool-header">
         <span className="pool-title">Media</span>
         <div className="pool-actions">

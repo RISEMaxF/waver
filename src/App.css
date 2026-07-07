@@ -1767,6 +1767,72 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   transform: translateX(-15%);
 }
 
+/* Quick guide panels inside the modal card. */
+.guide-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-4);
+  padding: var(--space-4);
+}
+
+.guide-section h3 {
+  margin: 0 0 6px;
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-accent);
+}
+
+.guide-section p {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.55;
+  color: var(--color-text);
+}
+
+/* Fast custom tooltip (replaces the slow native title bubble). */
+.app-tooltip {
+  position: fixed;
+  z-index: 80;
+  transform: translateX(-50%);
+  max-width: 320px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-popover);
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+  pointer-events: none;
+  white-space: pre-line;
+}
+
+/* Panel resize handles: thin col-resize strips on panel boundaries. */
+.panel-resize {
+  flex-shrink: 0;
+  width: 5px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background-color 120ms ease;
+}
+
+.panel-resize:hover {
+  background: color-mix(in srgb, var(--color-accent) 35%, transparent);
+}
+
+.media-pool {
+  position: relative;
+}
+
+.pool-resize {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  z-index: 5;
+}
+
 /* ---- Context menu (right-click) ---- */
 .ctx-menu {
   position: fixed;

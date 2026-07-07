@@ -188,6 +188,7 @@ export function WaveformTimeline({
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [followPlayhead, setFollowPlayhead] = useState(true);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<MenuState | null>(null);
   // Time-range selection (drag across empty lane space): powers loop + range ops.
   const [range, setRange] = useState<{ start: number; end: number } | null>(
@@ -196,6 +197,37 @@ export function WaveformTimeline({
   const [loopOn, setLoopOn] = useState(false);
   // Snap splits/trims to source zero crossings — click-free cuts (FR-2.3).
   const [zeroCross, setZeroCross] = useState(true);
+  // Resizable track-controls gutter (drag the boundary), persisted per user.
+  const [gutterW, setGutterW] = useState(() => {
+    const w = Number(localStorage.getItem("waver-gutter-w"));
+    return w >= 150 && w <= 340 ? w : 190;
+  });
+  const gutterDrag = useRef<{ x: number; w: number } | null>(null);
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!gutterDrag.current) return;
+      setGutterW(
+        Math.min(
+          340,
+          Math.max(150, gutterDrag.current.w + (e.clientX - gutterDrag.current.x)),
+        ),
+      );
+    };
+    const onUp = () => {
+      if (!gutterDrag.current) return;
+      gutterDrag.current = null;
+      setGutterW((w) => {
+        localStorage.setItem("waver-gutter-w", String(w));
+        return w;
+      });
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
   const altBypass = useRef(false); // Alt held during a drag momentarily disables snap
   const [, tick] = useState(0);
   // Snapshot of where/when the current recording began (for the live overlay).
@@ -1180,7 +1212,7 @@ export function WaveformTimeline({
     await place(track, start, project);
     if (start !== wanted)
       onNotice(
-        `Placed at ${fmtTimecode(start / sr)} — no room at the drop point.`,
+        `Placed at ${fmtTimecode(start / sr)} - no room at the drop point.`,
       );
   };
 
@@ -1214,7 +1246,7 @@ export function WaveformTimeline({
         const zf = await zeroCrossing(clip.source_id, Math.round(sf));
         return timelineFrame + (zf - Math.round(sf));
       } catch {
-        return timelineFrame; // engine unavailable — edit still applies unsnapped
+        return timelineFrame; // engine unavailable - edit still applies unsnapped
       }
     },
     [zeroCross],
@@ -1280,7 +1312,7 @@ export function WaveformTimeline({
     revealSec(startS);
     if (Math.abs(startS - recStartSec.current) > 0.05)
       onNotice(
-        `Take placed at ${fmtTimecode(startS)} — the watched position was occupied.`,
+        `Take placed at ${fmtTimecode(startS)} - the watched position was occupied.`,
       );
   }, [lastTake, project, sr, revealSec, onNotice]);
 
@@ -1330,7 +1362,7 @@ export function WaveformTimeline({
         clipboard.current = null;
         setHasClipboard(false);
         onNotice(
-          "The clipboard clip's audio is no longer in this project — clipboard cleared.",
+          "The clipboard clip's audio is no longer in this project - clipboard cleared.",
         );
         return;
       }
@@ -1349,7 +1381,7 @@ export function WaveformTimeline({
       }
       if (start !== wanted)
         onNotice(
-          `Pasted at ${fmtTimecode(start / sr)} — no room at that position.`,
+          `Pasted at ${fmtTimecode(start / sr)} - no room at that position.`,
         );
       // eslint-disable-next-line react-hooks/exhaustive-deps
     },
@@ -1389,7 +1421,7 @@ export function WaveformTimeline({
     }
     if (start !== wanted)
       onNotice(
-        `Duplicated to ${fmtTimecode(start / sr)} — no room at the wanted spot.`,
+        `Duplicated to ${fmtTimecode(start / sr)} - no room at the wanted spot.`,
       );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project, selected, playheadSec, sr, api, onNotice, revealSec]);
@@ -1882,7 +1914,7 @@ export function WaveformTimeline({
                 ? "Stop recording (Space or Shift+R)"
                 : effArmedId
                   ? "Record (Shift+R)"
-                  : `Record (Shift+R) — nothing armed, take appends to ${project?.tracks[0]?.name ?? "a new track"}`
+                  : `Record (Shift+R) - nothing armed, take appends to ${project?.tracks[0]?.name ?? "a new track"}`
             }
             aria-label={
               recording
@@ -1991,7 +2023,7 @@ export function WaveformTimeline({
           type="button"
           className={`tbtn icon-only${snapEnabled ? " active" : ""}`}
           onClick={() => setSnapEnabled((s) => !s)}
-          title="Snap to grid (N) — hold Alt while dragging to bypass"
+          title="Snap to grid (N) - hold Alt while dragging to bypass"
           aria-label="Snap to grid"
           aria-pressed={snapEnabled}
         >
@@ -2015,7 +2047,7 @@ export function WaveformTimeline({
           title={
             range
               ? "Loop the selected range during playback"
-              : "Loop — drag across empty lane space to select a range first"
+              : "Loop - drag across empty lane space to select a range first"
           }
           aria-label="Loop selection"
           aria-pressed={loopOn}
@@ -2034,7 +2066,7 @@ export function WaveformTimeline({
         </button>
         <div
           className="grid-controls"
-          title="Beat grid — playhead & edits snap to it"
+          title="Beat grid - playhead & edits snap to it"
         >
           <button
             type="button"
@@ -2185,19 +2217,37 @@ export function WaveformTimeline({
         <button
           type="button"
           className="tbtn icon-only"
-          onClick={() => setShowShortcuts(true)}
-          title="Keyboard shortcuts (?)"
-          aria-label="Keyboard shortcuts"
+          onClick={(e) => {
+            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            setCtxMenu({
+              x: r.left,
+              y: r.bottom + 4,
+              items: [
+                {
+                  label: "Quick guide",
+                  onClick: () => setShowGuide(true),
+                },
+                {
+                  label: "Keyboard shortcuts",
+                  shortcut: "?",
+                  onClick: () => setShowShortcuts(true),
+                },
+              ],
+            });
+          }}
+          title="Help"
+          aria-label="Help"
+          aria-haspopup="menu"
         >
           <IconHelp />
         </button>
         {range && (
           <span
             className="sel-readout"
-            title="Selection start – end (length)"
+            title="Selection start - end (length)"
             aria-label={`Selection from ${fmtTimecode(range.start)} to ${fmtTimecode(range.end)}`}
           >
-            {fmtTimecode(range.start)}–{fmtTimecode(range.end)} (
+            {fmtTimecode(range.start)}-{fmtTimecode(range.end)} (
             {fmtTimecode(range.end - range.start)})
           </span>
         )}
@@ -2206,7 +2256,7 @@ export function WaveformTimeline({
         {/* Sticky ruler row: a fixed spacer over the track headers + the ruler canvas,
             outside the vertical scroll so the time/bar labels stay visible. */}
         <div className="wave-ruler-row">
-          <div className="wave-ruler-spacer" />
+          <div className="wave-ruler-spacer" style={{ width: gutterW }} />
           <canvas
             ref={rulerRef}
             className="wave-ruler-canvas"
@@ -2223,11 +2273,21 @@ export function WaveformTimeline({
           <TrackHeaders
             project={project}
             api={api}
+            width={gutterW}
             armedTrackId={effArmedId}
             inputLevels={inputLevels}
             onToggleArm={toggleArm}
             collapsed={collapsed}
             onToggleCollapse={toggleCollapse}
+          />
+          <div
+            className="panel-resize gutter-resize"
+            role="separator"
+            aria-label="Resize track controls"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              gutterDrag.current = { x: e.clientX, w: gutterW };
+            }}
           />
           <div
             className="wave-canvas-wrap"
@@ -2277,6 +2337,78 @@ export function WaveformTimeline({
       {showShortcuts && (
         <ShortcutsOverlay onClose={() => setShowShortcuts(false)} />
       )}
+      {showGuide && <GuideOverlay onClose={() => setShowGuide(false)} />}
+    </div>
+  );
+}
+
+/** Quick guide: how the core loops work, in four short panels. */
+function GuideOverlay({ onClose }: { onClose: () => void }) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      opener?.focus?.();
+    };
+  }, [onClose]);
+  const sections: { title: string; body: string }[] = [
+    {
+      title: "Record",
+      body: "Arm a track with its round button (or R with a clip selected), then hit the red transport key or Shift+R. The armed track shows a live input meter and the view follows the take. Space stops capture. The finished take is selected automatically. Nothing armed? The take appends to track 1.",
+    },
+    {
+      title: "Edit",
+      body: "Click selects a clip; drag moves it, edges trim, top corners shape fades (right-click a corner for curve and length presets). S splits at the playhead. Cuts snap to zero crossings while the sine toggle is on. Everything is non-destructive and undoable.",
+    },
+    {
+      title: "Ranges + loops",
+      body: "Drag across empty lane space to select a time range (it snaps to clip edges; double-click a clip to select exactly its span). E zooms to it, Delete removes it on every track (Ripple closes the gap), and the loop toggle cycles playback over it.",
+    },
+    {
+      title: "Files",
+      body: "Cmd+S saves the project; the dot by the name means unsaved changes. Add audio via Import or the Media drawer, drag items onto tracks or press Enter to place them at the playhead. Export renders a mixdown; format lives in the export popover.",
+    },
+  ];
+  return (
+    <div
+      className="shortcuts-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Quick guide"
+      onMouseDown={onClose}
+    >
+      <div className="shortcuts-card" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="shortcuts-head">
+          <h2>Quick guide</h2>
+          <button
+            type="button"
+            className="tbtn icon-only"
+            ref={closeRef}
+            onClick={onClose}
+            aria-label="Close"
+            title="Close (Esc)"
+          >
+            <IconClose />
+          </button>
+        </div>
+        <div className="guide-body">
+          {sections.map((sec) => (
+            <section key={sec.title} className="guide-section">
+              <h3>{sec.title}</h3>
+              <p>{sec.body}</p>
+            </section>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

@@ -34,7 +34,7 @@ export function DeviceSelector(props: Props) {
     <div className="devsel">
       {dis && (
         <p className="devsel-locked">
-          Locked while recording — stop to change devices.
+          Locked while recording - stop to change devices.
         </p>
       )}
       <section className="devsel-section">

@@ -92,7 +92,7 @@ export function FileBar({
     try {
       await fn();
     } catch (e) {
-      onError(`${label} failed — ${e}`);
+      onError(`${label} failed - ${e}`);
     } finally {
       setBusy(false);
       setBusyAction(null);
@@ -183,7 +183,7 @@ export function FileBar({
                 onChanged();
                 setMsg(
                   r.missing_sources.length
-                    ? `Opened ${basename(r.path)} — ${r.missing_sources.length} source file(s) missing`
+                    ? `Opened ${basename(r.path)} - ${r.missing_sources.length} source file(s) missing`
                     : `Opened ${basename(r.path)}`,
                 );
               }

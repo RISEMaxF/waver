@@ -12,7 +12,7 @@ export function useProject() {
     try {
       setProject(await api.getProject());
     } catch (e) {
-      setError(`Couldn't load the project — ${e}`);
+      setError(`Couldn't load the project - ${e}`);
     }
   }, []);
 
@@ -29,7 +29,7 @@ export function useProject() {
         setError(null);
         return view; // callers can locate what the edit created (W-08/W-09)
       } catch (e) {
-        setError(`Edit failed — ${e}`);
+        setError(`Edit failed - ${e}`);
         return null;
       }
     },

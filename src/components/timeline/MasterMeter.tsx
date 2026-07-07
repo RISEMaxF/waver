@@ -55,7 +55,7 @@ export function MasterMeter({ playing }: { playing: boolean }) {
       className="master-meter"
       role="group"
       aria-label="Master output level"
-      title="Master output — click to reset clip hold"
+      title="Master output - click to reset clip hold"
       onClick={() => setClipped(false)}
     >
       <span className="mm-label" aria-hidden="true">
@@ -79,7 +79,7 @@ export function MasterMeter({ playing }: { playing: boolean }) {
       </div>
       <span
         className={`mm-clip${clipped ? " on" : ""}`}
-        title={clipped ? "Clipped — click to reset" : "No clipping"}
+        title={clipped ? "Clipped - click to reset" : "No clipping"}
       />
     </div>
   );

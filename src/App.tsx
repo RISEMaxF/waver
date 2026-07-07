@@ -61,6 +61,70 @@ function Toasts({ items }: { items: ToastMsg[] }) {
   );
 }
 
+/** Global fast tooltips: native title= tooltips honor a slow OS delay, so at hover
+ *  time the nearest title is moved into data-tip (suppressing the native one) and a
+ *  styled tip renders after 250 ms. Icon buttons keep their aria-labels for AT. */
+function TooltipLayer() {
+  const [tip, setTip] = useState<{ text: string; x: number; y: number } | null>(
+    null,
+  );
+  const timer = useRef(0);
+  useEffect(() => {
+    const hide = () => {
+      clearTimeout(timer.current);
+      setTip(null);
+    };
+    const onOver = (e: MouseEvent) => {
+      clearTimeout(timer.current);
+      let el = e.target as HTMLElement | null;
+      let holder: HTMLElement | null = null;
+      while (el && el !== document.body) {
+        if (el.title || el.dataset.tip) {
+          holder = el;
+          break;
+        }
+        el = el.parentElement;
+      }
+      if (!holder) {
+        setTip(null);
+        return;
+      }
+      if (holder.title) {
+        holder.dataset.tip = holder.title;
+        holder.removeAttribute("title");
+      }
+      const text = holder.dataset.tip ?? "";
+      if (!text) {
+        setTip(null);
+        return;
+      }
+      const r = holder.getBoundingClientRect();
+      timer.current = window.setTimeout(
+        () => setTip({ text, x: r.left + r.width / 2, y: r.bottom + 8 }),
+        250,
+      );
+    };
+    document.addEventListener("mouseover", onOver);
+    document.addEventListener("mousedown", hide, true);
+    document.addEventListener("wheel", hide, true);
+    window.addEventListener("blur", hide);
+    return () => {
+      document.removeEventListener("mouseover", onOver);
+      document.removeEventListener("mousedown", hide, true);
+      document.removeEventListener("wheel", hide, true);
+      window.removeEventListener("blur", hide);
+    };
+  }, []);
+  if (!tip) return null;
+  const x = Math.min(Math.max(tip.x, 12), window.innerWidth - 12);
+  const y = Math.min(tip.y, window.innerHeight - 40);
+  return (
+    <div className="app-tooltip" style={{ left: x, top: y }} role="tooltip">
+      {tip.text}
+    </div>
+  );
+}
+
 /** Light/dark toggle, top-bar far right (W-31). index.html sets data-theme before
  *  first paint; this persists the user's explicit choice (W-20). */
 function ThemeToggle() {
@@ -127,7 +191,7 @@ function App() {
   useEffect(() => {
     const win = getCurrentWindow();
     const unlisten = win.onCloseRequested(async (event) => {
-      if (!dirtyRef.current) return; // clean — let it close
+      if (!dirtyRef.current) return; // clean - let it close
       event.preventDefault();
       const discard = await ask(
         "You have unsaved changes. Discard them and quit?",
@@ -228,6 +292,7 @@ function App() {
 
   return (
     <div className="app-shell">
+      <TooltipLayer />
       <header className="topbar">
         <div className="topbar-left">
           <div className="brand">

@@ -73,7 +73,7 @@ export function Meter({
       role="group"
       aria-label="Input level meter"
       onClick={reset}
-      title="Input level — click to reset peak / clip hold"
+      title="Input level - click to reset peak / clip hold"
     >
       {compact && <IconMic size={12} className="meter-mic" />}
       <div className={compact ? "meter-col" : undefined}>

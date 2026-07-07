@@ -87,7 +87,7 @@ export function useAudio() {
       // Accumulate both fallbacks into a single notice; clear it when all is well.
       setNotice(
         missing.length
-          ? `Saved ${missing.join(" & ")} device${missing.length > 1 ? "s" : ""} unavailable — using the default${missing.length > 1 ? "s" : ""}.`
+          ? `Saved ${missing.join(" & ")} device${missing.length > 1 ? "s" : ""} unavailable - using the default${missing.length > 1 ? "s" : ""}.`
           : null,
       );
 
@@ -110,7 +110,7 @@ export function useAudio() {
         setDevices(devs);
         resolveSelection(devs, settings);
       } catch (e) {
-        setError(`Couldn't load audio devices/settings — ${e}`);
+        setError(`Couldn't load audio devices/settings - ${e}`);
       } finally {
         ready.current = true;
       }
@@ -126,7 +126,7 @@ export function useAudio() {
       output_device_id: outputId,
       sample_rate: sampleRate,
       buffer_frames: bufferFrames,
-    }).catch((e) => setError(`Couldn't save audio settings — ${e}`));
+    }).catch((e) => setError(`Couldn't save audio settings - ${e}`));
   }, [inputId, outputId, sampleRate, bufferFrames]);
 
   // (Re)open the input (metering) whenever the stream parameters change.
@@ -144,11 +144,33 @@ export function useAudio() {
         if (cancelled) return;
         setLevels(u.channels);
         if (recordingRef.current) {
-          recWave.current.buckets.push({
+          const buckets = recWave.current.buckets;
+          buckets.push({
             t: (performance.now() - recWave.current.start) / 1000,
             min: u.wave_min,
             max: u.wave_max,
           });
+          // Long takes (an hour off a modular synth) must not grow this without
+          // bound: the live overlay iterates every bucket per animation frame.
+          // Past the cap, merge adjacent pairs — the take keeps its full span at
+          // half the bucket resolution, amortized O(1) per append.
+          if (buckets.length > 8000) {
+            const merged: typeof buckets = [];
+            for (let i = 0; i < buckets.length; i += 2) {
+              const a = buckets[i];
+              const b = buckets[i + 1];
+              merged.push(
+                b
+                  ? {
+                      t: a.t,
+                      min: Math.min(a.min, b.min),
+                      max: Math.max(a.max, b.max),
+                    }
+                  : a,
+              );
+            }
+            recWave.current.buckets = merged;
+          }
         }
       },
     )
@@ -165,7 +187,7 @@ export function useAudio() {
         }, 400);
       })
       .catch((e) => {
-        if (!cancelled) setError(`Couldn't open the input device — ${e}`);
+        if (!cancelled) setError(`Couldn't open the input device - ${e}`);
       });
     return () => {
       cancelled = true;
@@ -193,7 +215,7 @@ export function useAudio() {
         buffer_frames: bufferFrames,
       });
     } catch (e) {
-      setError(`Couldn't refresh devices — ${e}`);
+      setError(`Couldn't refresh devices - ${e}`);
     }
   }, [inputId, outputId, sampleRate, bufferFrames, resolveSelection]);
 
@@ -250,7 +272,7 @@ export function useAudio() {
       setRecording(true);
     } catch (e) {
       recordingRef.current = false;
-      setError(`Couldn't start recording — ${e}`);
+      setError(`Couldn't start recording - ${e}`);
     }
   }, []);
 
@@ -260,7 +282,7 @@ export function useAudio() {
       const take = await stopRecording();
       setTakes((t) => [take, ...t]);
     } catch (e) {
-      setError(`Couldn't finish the take — ${e}`);
+      setError(`Couldn't finish the take - ${e}`);
     } finally {
       setRecording(false);
     }
