@@ -23,9 +23,14 @@ rubato = { workspace = true }
 flacenc = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
-mp3lame-encoder = "0.2.4"
 audiopus = "0.2.0"
 ogg = "0.9.2"
+
+# LAME and libvorbis build through autotools/configure, which Windows CI runners
+# cannot run - MP3 and OGG(Vorbis) export are desktop-Unix only until vendored
+# differently. Opus (cmake) and WAV/FLAC (pure Rust) ship everywhere.
+[target.'cfg(not(windows))'.dependencies]
+mp3lame-encoder = "0.2.4"
 vorbis_rs.workspace = true
 
 [dev-dependencies]

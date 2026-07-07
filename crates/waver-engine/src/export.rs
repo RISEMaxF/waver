@@ -279,6 +279,19 @@ fn write_flac(
     Ok(())
 }
 
+#[cfg(windows)]
+fn write_ogg(
+    _mixed: &[f32],
+    _channels: u16,
+    _sample_rate: u32,
+    _path: &Path,
+) -> Result<(), EngineError> {
+    Err(EngineError::UnsupportedConfig(
+        "OGG (Vorbis) export is not available on Windows yet".into(),
+    ))
+}
+
+#[cfg(not(windows))]
 fn write_ogg(
     mixed: &[f32],
     channels: u16,
@@ -312,6 +325,20 @@ fn write_ogg(
 }
 
 /// MP3 via LAME (192 kbps CBR, best quality preset).
+#[cfg(windows)]
+fn write_mp3(
+    _mixed: &[f32],
+    _channels: u16,
+    _sample_rate: u32,
+    _path: &Path,
+) -> Result<(), EngineError> {
+    Err(EngineError::UnsupportedConfig(
+        "MP3 export is not available on Windows yet".into(),
+    ))
+}
+
+/// MP3 via LAME (192 kbps CBR, best quality preset).
+#[cfg(not(windows))]
 fn write_mp3(
     mixed: &[f32],
     channels: u16,

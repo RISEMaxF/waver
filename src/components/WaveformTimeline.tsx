@@ -572,11 +572,17 @@ export function WaveformTimeline({
         : Math.round(sec / step) * step;
       const candidates: number[] = [playheadSec, gridCandidate];
       for (const m of project?.markers ?? []) candidates.push(m.frame / sr);
-      const dragged =
-        drag.current && "clipId" in drag.current ? drag.current.clipId : null;
+      // Everything being dragged is excluded from the magnets - during a GROUP
+      // drag the co-members' old edges must not attract the grabbed clip, or the
+      // bundle snaps onto its own past positions and jitters (user report).
+      const d = drag.current;
+      const draggedSet: Set<string> | null =
+        d && "clipId" in d
+          ? (d.kind === "move" && d.groupIds) || new Set([d.clipId])
+          : null;
       for (const t of project?.tracks ?? []) {
         for (const c of t.clips) {
-          if (c.id === dragged) continue;
+          if (draggedSet?.has(c.id)) continue;
           candidates.push(c.timeline_start / sr);
           candidates.push((c.timeline_start + clipLen(c)) / sr);
         }

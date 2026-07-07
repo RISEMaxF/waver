@@ -37,3 +37,11 @@ lto = "thin"
 # Faster incremental dev builds of dependencies while keeping our own crates debuggable.
 [profile.dev.package."*"]
 opt-level = 2
+
+# cpal 0.18.1 (crates.io) pairs windows 0.61 with windows-core 0.62, which breaks
+# the WASAPI backend whenever both minors are in the graph (tao pins windows 0.61,
+# tauri pins windows-core 0.62 - exactly our tree). Upstream master aligns both to
+# 0.62 ("windows and windows-core must be the same minor version"); pin that commit
+# until the fix ships in a release.
+[patch.crates-io]
+cpal = { git = "https://github.com/RustAudio/cpal", rev = "e22fb7ecb4800649b7790bcbe8422ca347a62cd0" }
