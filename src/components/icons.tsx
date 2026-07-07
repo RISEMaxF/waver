@@ -68,6 +68,26 @@ export const IconFoldAll = (p: IconProps) => (
   </Svg>
 );
 
+// Input microphone (labels the input meter; W-12).
+export const IconMic = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="9" y="3" width="6" height="11" rx="3" />
+    <path d="M5 11a7 7 0 0014 0" />
+    <path d="M12 18v3" />
+  </Svg>
+);
+
+// Zoom to selection: magnifier framed by selection corners (W-29).
+export const IconZoomSel = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="11" cy="11" r="5" />
+    <path d="M15 15l4 4" />
+    <path d="M3 7V4a1 1 0 011-1h3" />
+    <path d="M21 7V4a1 1 0 00-1-1h-3" />
+    <path d="M3 17v3a1 1 0 001 1h3" />
+  </Svg>
+);
+
 // Snap magnet.
 export const IconMagnet = (p: IconProps) => (
   <Svg {...p}>

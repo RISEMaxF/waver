@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ask } from "@tauri-apps/plugin-dialog";
 import {
   exportProjectDialog,
@@ -14,12 +14,10 @@ import type { ProjectView } from "../audio/project";
 import {
   IconExport,
   IconImport,
-  IconMoon,
   IconNew,
   IconOpen,
   IconSave,
   IconSaveAs,
-  IconSun,
 } from "./icons";
 
 interface Props {
@@ -28,6 +26,7 @@ interface Props {
   dirty: boolean;
   markDirty: () => void;
   markClean: () => void;
+  onError: (msg: string) => void; // failures surface as dismissible toasts (W-05)
 }
 
 /** Confirm discarding unsaved changes before a destructive project switch (F1). */
@@ -47,18 +46,25 @@ export function FileBar({
   dirty,
   markDirty,
   markClean,
+  onError,
 }: Props) {
   const [format, setFormat] = useState<ExportFormat>("wav");
   const [bitDepth, setBitDepth] = useState<ExportBitDepth>("int24");
   const [busy, setBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  const [dark, setDark] = useState(true);
   const [projectPath, setProjectPath] = useState<string | null>(null);
 
-  // Theme toggle: set data-theme on <html>; the tokens + canvas follow it.
+  // Success text is transient (4s) and yields the moment new edits land, so it can
+  // never contradict the dirty dot (W-05).
   useEffect(() => {
-    document.documentElement.dataset.theme = dark ? "dark" : "light";
-  }, [dark]);
+    if (!msg) return;
+    const id = setTimeout(() => setMsg(null), 4000);
+    return () => clearTimeout(id);
+  }, [msg]);
+  useEffect(() => {
+    if (dirty) setMsg(null);
+  }, [dirty]);
 
   const sampleRate = project?.sample_rate ?? 48000;
   const hasContent =
@@ -66,15 +72,62 @@ export function FileBar({
 
   const run = async (label: string, fn: () => Promise<void>) => {
     setBusy(true);
+    setBusyAction(label);
     setMsg(null);
     try {
       await fn();
     } catch (e) {
-      setMsg(`${label} failed: ${e}`);
+      onError(`${label} failed — ${e}`);
     } finally {
       setBusy(false);
+      setBusyAction(null);
     }
   };
+
+  // Save / Save As are also keyboard commands (⌘S / ⇧⌘S; W-04).
+  const doSave = useCallback(async () => {
+    await run("Save", async () => {
+      if (projectPath) {
+        await saveProjectToPath(projectPath);
+        markClean();
+        setMsg(`Saved ${basename(projectPath)}`);
+      } else {
+        const p = await saveProjectDialog();
+        if (p) {
+          setProjectPath(p);
+          markClean();
+          setMsg(`Saved ${basename(p)}`);
+        }
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectPath, markClean]);
+
+  const doSaveAs = useCallback(async () => {
+    await run("Save As", async () => {
+      const p = await saveProjectDialog();
+      if (p) {
+        setProjectPath(p);
+        markClean();
+        setMsg(`Saved ${basename(p)}`);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [markClean]);
+
+  const saveKeys = useRef({ doSave, doSaveAs });
+  saveKeys.current = { doSave, doSaveAs };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        if (e.shiftKey) saveKeys.current.doSaveAs();
+        else saveKeys.current.doSave();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   return (
     <div className="filebar">
@@ -127,46 +180,24 @@ export function FileBar({
           className="tbtn"
           disabled={busy}
           title={
-            projectPath ? `Save to ${basename(projectPath)}` : "Save project"
+            projectPath
+              ? `Save to ${basename(projectPath)} (⌘S)`
+              : "Save project (⌘S)"
           }
-          onClick={() =>
-            run("Save", async () => {
-              if (projectPath) {
-                await saveProjectToPath(projectPath);
-                markClean();
-                setMsg(`Saved ${basename(projectPath)}`);
-              } else {
-                const p = await saveProjectDialog();
-                if (p) {
-                  setProjectPath(p);
-                  markClean();
-                  setMsg(`Saved ${basename(p)}`);
-                }
-              }
-            })
-          }
+          onClick={doSave}
         >
           <IconSave />
-          <span>Save</span>
+          <span>{busyAction === "Save" ? "Saving…" : "Save"}</span>
         </button>
         <button
           type="button"
           className="tbtn"
           disabled={busy}
-          title="Save to a new file"
-          onClick={() =>
-            run("Save As", async () => {
-              const p = await saveProjectDialog();
-              if (p) {
-                setProjectPath(p);
-                markClean();
-                setMsg(`Saved ${basename(p)}`);
-              }
-            })
-          }
+          title="Save to a new file (⇧⌘S)"
+          onClick={doSaveAs}
         >
           <IconSaveAs />
-          <span>Save As</span>
+          <span>{busyAction === "Save As" ? "Saving…" : "Save As"}</span>
         </button>
         <span
           className="filebar-project"
@@ -181,7 +212,9 @@ export function FileBar({
               ●
             </span>
           )}
-          {projectPath ? basename(projectPath) : "Untitled"}
+          <span className="filebar-project-name">
+            {projectPath ? basename(projectPath) : "Untitled"}
+          </span>
         </span>
       </div>
 
@@ -204,7 +237,7 @@ export function FileBar({
           }
         >
           <IconImport />
-          <span>Import</span>
+          <span>{busyAction === "Import" ? "Importing…" : "Import"}</span>
         </button>
         <select
           value={format}
@@ -237,7 +270,7 @@ export function FileBar({
                 sampleRate,
                 2,
               );
-              if (p) setMsg(`Exported ${format.toUpperCase()}`);
+              if (p) setMsg(`Exported ${basename(p)}`);
             })
           }
           title={
@@ -245,23 +278,15 @@ export function FileBar({
           }
         >
           <IconExport />
-          <span>Export</span>
+          <span>{busyAction === "Export" ? "Exporting…" : "Export"}</span>
         </button>
       </div>
 
-      <span className="tb-div" />
-
-      <button
-        type="button"
-        className="tbtn icon-only theme-toggle"
-        onClick={() => setDark((d) => !d)}
-        title="Toggle light / dark theme"
-        aria-label="Toggle theme"
-      >
-        {dark ? <IconSun /> : <IconMoon />}
-      </button>
-
-      {msg && <span className="filebar-msg">{msg}</span>}
+      {msg && (
+        <span className="filebar-msg" role="status" aria-live="polite">
+          {msg}
+        </span>
+      )}
     </div>
   );
 }

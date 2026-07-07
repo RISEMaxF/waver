@@ -2,7 +2,7 @@
  * main.tsx). This stylesheet consumes only those tokens. */
 :root {
   font-family: var(--font-family);
-  color-scheme: light dark;
+  /* color-scheme lives in tokens.css, per theme (W-20). */
 }
 
 * {
@@ -32,6 +32,57 @@ body {
   .rec-square {
     animation: none;
   }
+  .transport:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* Interactive controls ease between states instead of snapping (W-36). */
+.tbtn,
+.transport,
+.ts-btn,
+.ac-device-btn,
+.pool-play,
+.pool-toggle,
+.pool-item,
+.track-remove,
+.track-collapse,
+.color-swatch {
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.tbtn:active:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 8%, var(--bg));
+}
+
+.transport:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+
+/* Themed scrollbars — stock light scrollbars break the dark theme (W-39). */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.pool-list,
+.wave-scroll,
+.inspector,
+.shortcuts-card {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
 }
 
 @keyframes pulse {
@@ -82,6 +133,12 @@ body {
   width: 30px;
   padding: 0;
   justify-content: center;
+}
+
+.tbtn.sm {
+  height: 26px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
 }
 
 .tbtn.danger:hover:not(:disabled),
@@ -169,7 +226,7 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: 50%;
   background: var(--slider-thumb, var(--color-accent));
   border: 2px solid var(--color-panel);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 35%);
+  box-shadow: var(--shadow-sm);
 }
 input[type="range"]::-moz-range-thumb {
   width: 13px;
@@ -204,7 +261,7 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 8px var(--space-4);
+  gap: var(--space-2) var(--space-4);
   padding: var(--space-2) var(--space-3);
   background: var(--color-panel);
   border-bottom: 1px solid var(--color-border);
@@ -217,8 +274,14 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
 }
 
 .brand {
@@ -240,34 +303,66 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   color: var(--color-text-muted);
 }
 
-/* ---- Banners ---- */
-.banners {
-  flex-shrink: 0;
+/* ---- Toasts: fixed overlay, never reflows the workspace (W-02) ---- */
+.toasts {
+  position: fixed;
+  top: 56px;
+  right: var(--space-3);
+  z-index: 40;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--color-border);
+  max-width: 420px;
 }
 
-.notice,
-.error-banner {
-  margin: 0;
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
+  box-shadow: var(--shadow-popover);
+  backdrop-filter: blur(4px);
 }
 
-.notice {
+.toast.notice {
   border: 1px solid color-mix(in srgb, var(--warn) 50%, var(--edge));
-  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  background: color-mix(in srgb, var(--warn) 14%, var(--color-panel));
   color: var(--warn);
 }
 
-.error-banner {
+.toast.error {
   border: 1px solid var(--err);
-  background: color-mix(in srgb, var(--err) 12%, transparent);
+  background: color-mix(in srgb, var(--err) 14%, var(--color-panel));
   color: var(--err);
+}
+
+.toast-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.toast-dismiss {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: -2px -4px -2px 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  opacity: 0.7;
+  cursor: pointer;
+}
+
+.toast-dismiss:hover {
+  opacity: 1;
+  background: color-mix(in srgb, currentcolor 14%, transparent);
 }
 
 /* ---- Stage (fills; holds the timeline) ---- */
@@ -324,6 +419,11 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   color: var(--color-text);
   font-weight: 600;
   max-width: 12rem;
+}
+
+/* text-overflow needs a block-level child inside the inline-flex parent (W-05). */
+.filebar-project-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -399,7 +499,7 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   background: var(--color-panel);
-  box-shadow: 0 8px 28px rgb(0 0 0 / 35%);
+  box-shadow: var(--shadow-popover);
 }
 
 .ac-popover.anchor-left {
@@ -474,43 +574,7 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   align-self: flex-start;
 }
 
-/* ---- Record button ---- */
-.rec-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.35rem 0.7rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  background: var(--bg);
-  color: var(--ink);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-}
-
-.rec-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-/* Record is the app's primary action — a resting red CTA (F25). */
-.rec-btn.start:not(:disabled) {
-  border-color: var(--err);
-  background: color-mix(in srgb, var(--err) 22%, transparent);
-  color: var(--err);
-}
-
-.rec-btn.start:not(:disabled):hover {
-  background: color-mix(in srgb, var(--err) 34%, transparent);
-}
-
-.rec-btn.stop {
-  border-color: var(--err);
-  background: color-mix(in srgb, var(--err) 15%, transparent);
-}
-
+/* ---- Record indicator glyphs (used by the transport rec button) ---- */
 .rec-dot {
   width: 11px;
   height: 11px;
@@ -521,7 +585,7 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
 .rec-square {
   width: 10px;
   height: 10px;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   background: var(--err);
   animation: pulse 1s ease-in-out infinite;
 }
@@ -555,7 +619,7 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
 .meter-clip {
   width: 8px;
   height: 8px;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   border: 1px solid var(--color-border);
   background: transparent;
 }
@@ -647,6 +711,31 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   cursor: pointer;
 }
 
+.meter-mic {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.meter-reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+.meter-reset:hover {
+  opacity: 1;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 10%, transparent);
+}
+
 .meter.compact .meter-bars {
   display: flex;
   flex-direction: column;
@@ -663,7 +752,7 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   position: relative;
   width: 150px;
   height: 11px;
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   background: linear-gradient(
     to right,
     color-mix(in srgb, var(--ok) 22%, var(--panel)) 0%,
@@ -697,6 +786,7 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   min-width: 3.4rem;
   font-size: var(--font-size-xs);
   font-weight: 600;
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   color: var(--color-text-muted);
 }
@@ -749,7 +839,8 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-2) var(--space-3);
+  height: 56px;
+  padding: 0 var(--space-3);
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -850,10 +941,41 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
 }
 
 .pool-item-info {
+  flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 1px;
+}
+
+.pool-place {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-panel);
+  color: var(--color-text-muted);
+  opacity: 0;
+  cursor: pointer;
+  transition:
+    opacity 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.pool-item:hover .pool-place,
+.pool-item:focus-within .pool-place,
+.pool-place:focus-visible {
+  opacity: 1;
+}
+
+.pool-place:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 
 .pool-item-name {
@@ -883,10 +1005,12 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: var(--space-2) var(--space-3);
+  gap: var(--space-1-5);
+  height: 56px; /* == .pool-header — one continuous seam across the workspace (W-32) */
+  padding: 0 var(--space-3);
   border-bottom: 1px solid var(--color-border);
+  overflow-x: auto; /* one stable row; groups never shatter mid-group (W-18) */
+  overflow-y: hidden;
 }
 
 /* ---- Transport: bigger, colored (green play / red stop) ---- */
@@ -902,7 +1026,7 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   justify-content: center;
   width: 38px;
   height: 38px;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--color-border);
   background: var(--bg);
   cursor: pointer;
@@ -919,13 +1043,54 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
 }
 
 .transport.stop {
+  color: var(--color-text);
+  border-color: var(--color-border);
+  background: transparent;
+}
+
+.transport.stop:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+}
+
+/* Record joins the transport (W-01): resting red CTA, pulsing while rolling. */
+.transport.rec {
   color: var(--err);
   border-color: color-mix(in srgb, var(--err) 55%, var(--color-border));
   background: color-mix(in srgb, var(--err) 14%, transparent);
 }
 
-.transport.stop:hover:not(:disabled) {
+.transport.rec:hover:not(:disabled) {
   background: color-mix(in srgb, var(--err) 26%, transparent);
+}
+
+.transport.rec.recording {
+  background: color-mix(in srgb, var(--err) 32%, transparent);
+  border-color: var(--err);
+}
+
+/* Transport timecode (W-13): the primary position readout, big and tabular.
+   min-width reserves space so ticking digits never shift the toolbar. */
+.wave-timecode {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 7.2rem;
+  padding: 0 var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+
+.wave-timecode .tc-rec {
+  color: var(--err);
+}
+
+.wave-timecode .tc-beats {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-accent);
 }
 
 .transport:disabled {
@@ -954,6 +1119,7 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   margin-left: auto;
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1001,8 +1167,25 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
 }
 
 .wave-canvas-wrap {
+  position: relative; /* anchors the first-run hint overlay (W-30) */
   flex: 1;
   min-width: 0;
+}
+
+/* First-run hint floats over the empty lanes without hiding them (W-30). */
+.wave-empty-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: var(--space-4);
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  pointer-events: none;
 }
 
 .wave-empty {
@@ -1035,16 +1218,27 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
 }
 
 .track-color-strip {
+  position: relative;
   width: 6px;
   height: 100%;
   padding: 0;
   border: none;
   background: var(--track-color, var(--color-accent));
   cursor: pointer;
+  transform-origin: left;
+  transition: transform 100ms ease;
 }
 
+/* Fixed layout width — hover scales the paint, never reflows the header (W-14). */
 .track-color-strip:hover {
-  width: 9px;
+  transform: scaleX(1.5);
+}
+
+/* Invisible hit-area extension to a ≥24px target (WCAG 2.5.8; W-14). */
+.track-color-strip::after {
+  content: "";
+  position: absolute;
+  inset: 0 -18px 0 0;
 }
 
 .color-popover {
@@ -1053,21 +1247,26 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   left: 10px;
   z-index: 30;
   display: grid;
-  grid-template-columns: repeat(4, 20px);
-  gap: 5px;
+  grid-template-columns: repeat(4, 24px);
+  gap: var(--space-1-5);
   padding: 8px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-panel);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 40%);
+  box-shadow: var(--shadow-popover);
 }
 
 .color-swatch {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   border-radius: var(--radius-sm);
   border: 1px solid rgb(0 0 0 / 25%);
   cursor: pointer;
+}
+
+.color-swatch.selected {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
 }
 
 .color-swatch:hover {
@@ -1149,15 +1348,20 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text-muted);
-  opacity: 0.5;
+  opacity: 0; /* revealed on row hover / keyboard focus (W-14) */
   cursor: pointer;
+}
+
+.track-head:hover .track-remove,
+.track-remove:focus-visible {
+  opacity: 0.6;
 }
 
 .track-remove:hover {
@@ -1170,8 +1374,8 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
   border: none;
   border-radius: var(--radius-sm);
@@ -1241,6 +1445,13 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   display: block;
 }
 
+/* Ableton/Logic-style letter toggles: M / S (W-26). */
+.ts-letter {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .ts-btn:hover {
   border-color: var(--color-text-muted);
 }
@@ -1277,9 +1488,28 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
 .track-gain-val {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  min-width: 1.6rem;
+  min-width: 3.4rem;
   text-align: right;
+}
+
+/* --- Armed-track mini input meter (W-12) --- */
+.track-mini-meter {
+  height: 5px;
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--color-border) 60%, transparent);
+  overflow: hidden;
+}
+
+.track-mini-fill {
+  height: 100%;
+  background: var(--ok);
+  transition: width 60ms linear;
+}
+
+.track-mini-fill.clip {
+  background: var(--err);
 }
 
 /* ==================== Inspector (bottom bar, selection-driven) ==================== */
@@ -1289,16 +1519,18 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   display: flex;
   align-items: stretch;
   gap: var(--space-4);
+  height: 96px; /* fixed: selection changes must not re-layout the canvas (W-19) */
   padding: var(--space-2) var(--space-3);
   border-top: 1px solid var(--color-border);
   background: var(--color-panel);
   overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .inspector.empty {
+  align-items: center;
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
-  padding: var(--space-3);
 }
 
 .insp-panel {
@@ -1376,15 +1608,41 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
 
 .inspector input[type="number"] {
   width: 4.5rem;
-  padding: 0.25rem 0.35rem;
+  height: 26px;
+  padding: 0 0.35rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
   background: var(--bg);
   color: var(--ink);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.insp-time {
+  width: 6.4rem;
+  height: 26px;
+  padding: 0 0.35rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.inspector .insp-gain-num {
+  width: 3.6rem;
+}
+
+.insp-unit {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
 }
 
 .inspector select {
-  padding: 0.25rem 0.35rem;
+  height: 26px;
+  padding: 0 0.35rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
   background: var(--bg);
@@ -1409,23 +1667,23 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   width: min(720px, 100%);
   max-height: 100%;
   overflow: auto;
-  border-radius: var(--radius-lg, 12px);
+  border-radius: var(--radius-lg);
   border: 1px solid var(--color-border);
-  background: var(--color-surface, var(--bg));
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-modal);
 }
 
 .shortcuts-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 18px;
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--color-border);
 }
 
 .shortcuts-head h2 {
   margin: 0;
-  font-size: var(--font-size-md, 15px);
+  font-size: var(--font-size-md);
   font-weight: 600;
   color: var(--color-text);
 }
@@ -1433,8 +1691,8 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
 .shortcuts-cols {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 20px 28px;
-  padding: 18px;
+  gap: var(--space-5) var(--space-5);
+  padding: var(--space-4);
 }
 
 .shortcuts-group h3 {
@@ -1471,11 +1729,11 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
 .shortcut-row kbd {
   display: inline-block;
   padding: 2px 6px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   background: var(--bg);
   color: var(--color-text);
-  font-family: var(--font-mono, ui-monospace, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.4;
   white-space: nowrap;

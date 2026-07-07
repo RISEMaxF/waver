@@ -12,7 +12,7 @@ export function useProject() {
     try {
       setProject(await api.getProject());
     } catch (e) {
-      setError(String(e));
+      setError(`Couldn't load the project — ${e}`);
     }
   }, []);
 
@@ -20,19 +20,26 @@ export function useProject() {
     refresh();
   }, [refresh]);
 
-  const run = useCallback(async (p: Promise<ProjectView>) => {
-    try {
-      setProject(await p);
-      setDirty(true);
-      setError(null);
-    } catch (e) {
-      setError(String(e));
-    }
-  }, []);
+  const run = useCallback(
+    async (p: Promise<ProjectView>): Promise<ProjectView | null> => {
+      try {
+        const view = await p;
+        setProject(view);
+        setDirty(true);
+        setError(null);
+        return view; // callers can locate what the edit created (W-08/W-09)
+      } catch (e) {
+        setError(`Edit failed — ${e}`);
+        return null;
+      }
+    },
+    [],
+  );
 
   return {
     project,
     error,
+    clearError: useCallback(() => setError(null), []),
     refresh,
     dirty,
     markDirty: useCallback(() => setDirty(true), []),

@@ -9,7 +9,82 @@ import { AudioControls } from "./components/AudioControls";
 import { FileBar } from "./components/FileBar";
 import { MediaPool } from "./components/MediaPool";
 import { WaveformTimeline } from "./components/WaveformTimeline";
+import { IconClose, IconMoon, IconSun } from "./components/icons";
 import "./App.css";
+
+/** One feedback toast. Notices self-dismiss; errors persist until dismissed (W-02). */
+interface ToastMsg {
+  kind: "notice" | "error";
+  text: string;
+  onDismiss: () => void;
+}
+
+function ToastItem({ toast }: { toast: ToastMsg }) {
+  const { kind, text, onDismiss } = toast;
+  useEffect(() => {
+    if (kind !== "notice") return;
+    const id = setTimeout(onDismiss, 6000);
+    return () => clearTimeout(id);
+  }, [kind, text, onDismiss]);
+  return (
+    <div
+      className={`toast ${kind}`}
+      role={kind === "error" ? "alert" : "status"}
+      aria-live={kind === "error" ? "assertive" : "polite"}
+    >
+      <span className="toast-text">{text}</span>
+      <button
+        type="button"
+        className="toast-dismiss"
+        aria-label="Dismiss"
+        onClick={onDismiss}
+      >
+        <IconClose size={13} />
+      </button>
+    </div>
+  );
+}
+
+/** Fixed overlay so feedback never reflows the workspace (W-02). */
+function Toasts({ items }: { items: ToastMsg[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="toasts">
+      {items.map((t) => (
+        <ToastItem key={`${t.kind}:${t.text}`} toast={t} />
+      ))}
+    </div>
+  );
+}
+
+/** Light/dark toggle, top-bar far right (W-31). index.html sets data-theme before
+ *  first paint; this persists the user's explicit choice (W-20). */
+function ThemeToggle() {
+  const [dark, setDark] = useState(
+    document.documentElement.dataset.theme !== "light",
+  );
+  const toggle = () => {
+    const next = !dark;
+    setDark(next);
+    document.documentElement.dataset.theme = next ? "dark" : "light";
+    try {
+      localStorage.setItem("waver-theme", next ? "dark" : "light");
+    } catch {
+      /* private mode etc. — theme still applies for this session */
+    }
+  };
+  return (
+    <button
+      type="button"
+      className="tbtn icon-only theme-toggle"
+      onClick={toggle}
+      title="Toggle light / dark theme"
+      aria-label="Toggle theme"
+    >
+      {dark ? <IconSun /> : <IconMoon />}
+    </button>
+  );
+}
 
 interface AppInfo {
   name: string;
@@ -18,7 +93,11 @@ interface AppInfo {
 
 function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
-  const [poolMsg, setPoolMsg] = useState<string | null>(null);
+  const [poolMsg, setPoolMsg] = useState<{
+    kind: "notice" | "error";
+    text: string;
+  } | null>(null);
+  const [fileErr, setFileErr] = useState<string | null>(null);
   const audio = useAudio();
   const project = useProject();
   // Latest record target (armed track + playhead frame), kept fresh by the timeline so
@@ -60,15 +139,73 @@ function App() {
     };
   }, []);
 
-  // Refresh the project timeline whenever a new take is recorded.
+  // Refresh the project timeline whenever a new take is recorded, and remember the
+  // committed clip so the timeline can select + reveal it (W-06).
   const takeCount = useRef(0);
+  const [lastTake, setLastTake] = useState<{
+    clipId: string;
+    seq: number;
+  } | null>(null);
   useEffect(() => {
     if (audio.takes.length !== takeCount.current) {
       takeCount.current = audio.takes.length;
+      const newest = audio.takes[0];
+      if (newest)
+        setLastTake({ clipId: newest.clip_id, seq: audio.takes.length });
       project.markDirty();
       project.refresh();
     }
   }, [audio.takes, project]);
+
+  // Place a pool source on the armed (else first) track at the playhead — the
+  // keyboard/click alternative to drag-and-drop (W-15). recordTargetRef always holds
+  // the timeline's live armed-track + playhead frame.
+  const placeFromPool = useCallback(
+    async (sourceId: string) => {
+      const view = project.project;
+      if (!view) return;
+      const src = view.sources.find((s) => s.id === sourceId);
+      if (!src) return;
+      const spec = (start: number) => ({
+        name: (src.path.split(/[\\/]/).pop() ?? "Clip").replace(/\.[^.]+$/, ""),
+        source_id: src.id,
+        source_channel: null,
+        source_in: 0,
+        source_out: src.frames,
+        timeline_start: start,
+        gain_db: 0,
+        fade_in_len: 0,
+        fade_in_curve: "linear" as const,
+        fade_out_len: 0,
+        fade_out_curve: "linear" as const,
+      });
+      const wanted = Math.max(0, recordTargetRef.current.startFrame);
+      const armedId = recordTargetRef.current.trackId;
+      const track = view.tracks.find((t) => t.id === armedId) ?? view.tracks[0];
+      if (!track) {
+        const nv = await project.addTrack();
+        const t0 = nv?.tracks[0];
+        if (t0) await project.paste(spec(wanted), t0.id);
+        return;
+      }
+      // Same non-overlap fallback the canvas drop uses: bump past occupied space.
+      const len = src.frames;
+      const overlaps = track.clips.some(
+        (c) =>
+          wanted < c.timeline_start + (c.source_out - c.source_in) &&
+          c.timeline_start < wanted + len,
+      );
+      const start = overlaps
+        ? track.clips.reduce(
+            (m, c) =>
+              Math.max(m, c.timeline_start + (c.source_out - c.source_in)),
+            0,
+          )
+        : wanted;
+      await project.paste(spec(start), track.id);
+    },
+    [project],
+  );
 
   // Toggle recording; refresh after starting so a just-created track (armed on the
   // backend when nothing was armed) shows up and the live waveform has a lane.
@@ -99,39 +236,44 @@ function App() {
             dirty={project.dirty}
             markDirty={project.markDirty}
             markClean={project.markClean}
+            onError={setFileErr}
           />
         </div>
-        <AudioControls audio={audio} onToggleRecord={onToggleRecord} />
+        <div className="topbar-right">
+          <AudioControls audio={audio} />
+          <ThemeToggle />
+        </div>
       </header>
 
-      {(audio.notice || audio.error || project.error || poolMsg) && (
-        <div className="banners">
-          {audio.notice && (
-            <p className="notice" role="status" aria-live="polite">
-              {audio.notice}
-            </p>
-          )}
-          {audio.error && (
-            <p className="error-banner" role="alert">
-              {audio.error}
-            </p>
-          )}
-          {project.error && (
-            <p className="error-banner" role="alert">
-              {project.error}
-            </p>
-          )}
-          {poolMsg && (
-            <p
-              className="error-banner"
-              role="alert"
-              onClick={() => setPoolMsg(null)}
-            >
-              {poolMsg}
-            </p>
-          )}
-        </div>
-      )}
+      <Toasts
+        items={[
+          audio.error && {
+            kind: "error" as const,
+            text: audio.error,
+            onDismiss: audio.clearError,
+          },
+          project.error && {
+            kind: "error" as const,
+            text: project.error,
+            onDismiss: project.clearError,
+          },
+          fileErr && {
+            kind: "error" as const,
+            text: fileErr,
+            onDismiss: () => setFileErr(null),
+          },
+          audio.notice && {
+            kind: "notice" as const,
+            text: audio.notice,
+            onDismiss: audio.clearNotice,
+          },
+          poolMsg && {
+            kind: poolMsg.kind,
+            text: poolMsg.text,
+            onDismiss: () => setPoolMsg(null),
+          },
+        ].filter((t): t is ToastMsg => !!t)}
+      />
 
       <main className="stage">
         <MediaPool
@@ -141,15 +283,23 @@ function App() {
             project.markDirty();
             project.refresh();
           }}
-          onError={setPoolMsg}
+          onNotice={(text) => setPoolMsg({ kind: "notice", text })}
+          onError={(text) => setPoolMsg({ kind: "error", text })}
+          onPlace={placeFromPool}
         />
         <WaveformTimeline
           project={project.project}
           api={project}
           outputId={audio.outputId}
           recording={audio.recording}
+          canRecord={audio.canRecord}
+          onToggleRecord={onToggleRecord}
+          recElapsed={audio.recElapsed}
           recWave={audio.recWave}
           recordTargetRef={recordTargetRef}
+          lastTake={lastTake}
+          onNotice={(text) => setPoolMsg({ kind: "notice", text })}
+          inputLevels={audio.levels}
         />
       </main>
     </div>

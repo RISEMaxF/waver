@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChannelLevel } from "../audio/types";
+import { IconMic, IconRefresh } from "./icons";
 
 // Meter display range. Below MIN_DBFS reads as silence.
 const MIN_DBFS = -60;
@@ -70,10 +71,11 @@ export function Meter({
     <div
       className={`meter${compact ? " compact" : ""}`}
       role="group"
-      aria-label="Input level meter (click to reset peak)"
+      aria-label="Input level meter"
       onClick={reset}
-      title="Click to reset peak / clip hold"
+      title="Input level — click to reset peak / clip hold"
     >
+      {compact && <IconMic size={12} className="meter-mic" />}
       <div className="meter-bars">
         {channels.map((level, i) => {
           const rmsPct = normalize(level.rms_dbfs);
@@ -114,6 +116,18 @@ export function Meter({
           {anyClip ? "CLIP" : `${displayDb} dB`}
         </span>
       )}
+      <button
+        type="button"
+        className="meter-reset"
+        aria-label="Reset peak and clip hold"
+        title="Reset peak / clip hold"
+        onClick={(e) => {
+          e.stopPropagation();
+          reset();
+        }}
+      >
+        <IconRefresh size={11} />
+      </button>
     </div>
   );
 }

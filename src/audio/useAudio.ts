@@ -110,7 +110,7 @@ export function useAudio() {
         setDevices(devs);
         resolveSelection(devs, settings);
       } catch (e) {
-        setError(String(e));
+        setError(`Couldn't load audio devices/settings — ${e}`);
       } finally {
         ready.current = true;
       }
@@ -126,7 +126,7 @@ export function useAudio() {
       output_device_id: outputId,
       sample_rate: sampleRate,
       buffer_frames: bufferFrames,
-    }).catch((e) => setError(String(e)));
+    }).catch((e) => setError(`Couldn't save audio settings — ${e}`));
   }, [inputId, outputId, sampleRate, bufferFrames]);
 
   // (Re)open the input (metering) whenever the stream parameters change.
@@ -165,7 +165,7 @@ export function useAudio() {
         }, 400);
       })
       .catch((e) => {
-        if (!cancelled) setError(String(e));
+        if (!cancelled) setError(`Couldn't open the input device — ${e}`);
       });
     return () => {
       cancelled = true;
@@ -193,7 +193,7 @@ export function useAudio() {
         buffer_frames: bufferFrames,
       });
     } catch (e) {
-      setError(String(e));
+      setError(`Couldn't refresh devices — ${e}`);
     }
   }, [inputId, outputId, sampleRate, bufferFrames, resolveSelection]);
 
@@ -250,7 +250,7 @@ export function useAudio() {
       setRecording(true);
     } catch (e) {
       recordingRef.current = false;
-      setError(String(e));
+      setError(`Couldn't start recording — ${e}`);
     }
   }, []);
 
@@ -260,7 +260,7 @@ export function useAudio() {
       const take = await stopRecording();
       setTakes((t) => [take, ...t]);
     } catch (e) {
-      setError(String(e));
+      setError(`Couldn't finish the take — ${e}`);
     } finally {
       setRecording(false);
     }
@@ -289,5 +289,7 @@ export function useAudio() {
     refresh,
     startRec,
     stopRec,
+    clearError: useCallback(() => setError(null), []),
+    clearNotice: useCallback(() => setNotice(null), []),
   };
 }

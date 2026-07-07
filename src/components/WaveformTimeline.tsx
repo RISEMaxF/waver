@@ -11,6 +11,7 @@ import type {
   FadeCurve,
   ProjectView,
 } from "../audio/project";
+import type { ChannelLevel } from "../audio/types";
 import { setRecordTarget } from "../audio/project";
 import type { ProjectApi } from "../audio/useProject";
 import { useTransport } from "../audio/useTransport";
@@ -40,6 +41,7 @@ import {
   IconUndo,
   IconZoomIn,
   IconZoomOut,
+  IconZoomSel,
 } from "./icons";
 import {
   drawClipWave,
@@ -55,6 +57,8 @@ import {
   SNAP_PX,
   TRACK_HEIGHT,
   COLLAPSED_H,
+  fmtTimecode,
+  labelColorFor,
   trackColor,
 } from "./timeline/renderer";
 
@@ -75,11 +79,20 @@ interface Props {
   api: ProjectApi;
   outputId: string | null;
   recording: boolean;
+  canRecord: boolean;
+  onToggleRecord: () => void;
+  recElapsed: number;
   recWave: RecWaveRef;
   recordTargetRef: React.MutableRefObject<{
     trackId: string | null;
     startFrame: number;
   }>;
+  /** Most recent committed take (select + reveal it; W-06). */
+  lastTake: { clipId: string; seq: number } | null;
+  /** Transient, non-blocking feedback (relocations, dead clipboard; W-08). */
+  onNotice: (msg: string) => void;
+  /** Live input levels for the armed track's mini meter (W-12). */
+  inputLevels: ChannelLevel[];
 }
 
 type Drag =
@@ -130,8 +143,14 @@ export function WaveformTimeline({
   api,
   outputId,
   recording,
+  canRecord,
+  onToggleRecord,
+  recElapsed,
   recWave,
   recordTargetRef,
+  lastTake,
+  onNotice,
+  inputLevels,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -148,6 +167,7 @@ export function WaveformTimeline({
   const [selected, setSelected] = useState<string | null>(null);
   const [ripple, setRipple] = useState(false);
   const [cursor, setCursor] = useState("default");
+  // null = unset (auto-arm picks a track); "none" = the user disarmed on purpose (W-07).
   const [armedTrackId, setArmedTrackId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const rulerRef = useRef<HTMLCanvasElement>(null);
@@ -190,30 +210,53 @@ export function WaveformTimeline({
   // lands on an existing track instead of spawning a new one every take. Arming another
   // track's R button overrides this.
   useEffect(() => {
+    if (armedTrackId === "none") return; // explicit disarm sticks (W-07)
     const ids = project?.tracks.map((t) => t.id) ?? [];
     if (armedTrackId && ids.includes(armedTrackId)) return;
     setArmedTrackId(ids[0] ?? null);
   }, [project, armedTrackId]);
+  const effArmedId = armedTrackId === "none" ? null : armedTrackId;
 
   // Keep the shared record target fresh (App commits it synchronously at record time),
   // and mirror it to the backend continuously except while playing/recording.
   useEffect(() => {
     recordTargetRef.current = {
-      trackId: armedTrackId,
+      trackId: effArmedId,
       startFrame: Math.round(playheadSec * sr),
     };
     if (playing || recording) return;
-    setRecordTarget(armedTrackId, Math.round(playheadSec * sr)).catch(() => {});
-  }, [armedTrackId, playheadSec, playing, recording, sr, recordTargetRef]);
+    setRecordTarget(effArmedId, Math.round(playheadSec * sr)).catch(() => {});
+  }, [effArmedId, playheadSec, playing, recording, sr, recordTargetRef]);
 
-  // On the record rising edge, snapshot where/when it began for the live overlay.
+  // On the record rising edge, anchor the live overlay where the backend will actually
+  // commit the take (W-06): armed track at the playhead unless that sits inside an
+  // existing clip (→ end of track); with nothing armed, the take appends to track 1.
   useEffect(() => {
     if (recording && !prevRecording.current) {
-      recStartSec.current = playheadSec;
-      recTrackId.current = armedTrackId;
+      const endOf = (t: ProjectView["tracks"][number]) =>
+        t.clips.reduce(
+          (m, c) =>
+            Math.max(m, c.timeline_start + (c.source_out - c.source_in)),
+          0,
+        );
+      const armed = project?.tracks.find((t) => t.id === effArmedId);
+      const wanted = Math.round(playheadSec * sr);
+      if (armed) {
+        const inside = armed.clips.some(
+          (c) =>
+            c.timeline_start <= wanted &&
+            wanted < c.timeline_start + (c.source_out - c.source_in),
+        );
+        recStartSec.current = (inside ? endOf(armed) : wanted) / sr;
+        recTrackId.current = armed.id;
+      } else {
+        const t0 = project?.tracks[0];
+        recStartSec.current = (t0 ? endOf(t0) : 0) / sr;
+        recTrackId.current = t0?.id ?? null;
+      }
     }
     prevRecording.current = recording;
-  }, [recording, playheadSec, armedTrackId]);
+  }, [recording, playheadSec, effArmedId, project, sr]);
 
   // Redraw every frame while recording so the incoming waveform grows live.
   useEffect(() => {
@@ -233,7 +276,7 @@ export function WaveformTimeline({
   }, [recording]);
 
   const toggleArm = useCallback((id: string) => {
-    setArmedTrackId((cur) => (cur === id ? null : id));
+    setArmedTrackId((cur) => (cur === id ? "none" : id));
   }, []);
 
   const toggleCollapse = useCallback((id: string) => {
@@ -395,7 +438,7 @@ export function WaveformTimeline({
         rx.fillStyle = th.lane;
         rx.fillRect(0, 0, width, RULER_HEIGHT);
         rx.fillStyle = th.ruler;
-        rx.font = "10px system-ui, sans-serif";
+        rx.font = th.labelFont;
         const tick = (x: number) => {
           rx.strokeStyle = th.grid;
           rx.lineWidth = 1;
@@ -405,6 +448,19 @@ export function WaveformTimeline({
           rx.stroke();
         };
         if (!beatGrid) {
+          // Minor stubs at 1/5 steps under the labeled majors (W-38).
+          const minor = step / 5;
+          const firstMinor = Math.ceil(scrollSec / minor) * minor;
+          for (let t = firstMinor; (t - scrollSec) * pps <= width; t += minor) {
+            const isMajor = Math.abs(t / step - Math.round(t / step)) < 1e-6;
+            if (isMajor) continue;
+            const x = Math.round((t - scrollSec) * pps);
+            rx.strokeStyle = th.grid;
+            rx.beginPath();
+            rx.moveTo(x + 0.5, RULER_HEIGHT - 3);
+            rx.lineTo(x + 0.5, RULER_HEIGHT);
+            rx.stroke();
+          }
           const first = Math.ceil(scrollSec / step) * step;
           for (let t = first; (t - scrollSec) * pps <= width; t += step) {
             const x = Math.round((t - scrollSec) * pps);
@@ -462,14 +518,19 @@ export function WaveformTimeline({
     ctx.strokeStyle = th.grid;
     ctx.lineWidth = 1;
     if (!beatGrid) {
-      const first = Math.ceil(scrollSec / step) * step;
-      for (let t = first; (t - scrollSec) * pps <= width; t += step) {
+      // Major/minor hierarchy mirroring beat mode's 0.5/0.1 alphas (W-38).
+      const minor = step / 5;
+      const firstMinor = Math.ceil(scrollSec / minor) * minor;
+      for (let t = firstMinor; (t - scrollSec) * pps <= width; t += minor) {
+        const isMajor = Math.abs(t / step - Math.round(t / step)) < 1e-6;
+        ctx.globalAlpha = isMajor ? 1 : 0.35;
         const x = Math.round((t - scrollSec) * pps) + 0.5;
         ctx.beginPath();
         ctx.moveTo(x, 0);
         ctx.lineTo(x, total);
         ctx.stroke();
       }
+      ctx.globalAlpha = 1;
     } else {
       const stepsPerBar = gridDiv * 4;
       for (let idx = Math.max(0, Math.ceil(scrollSec / stepSec)); ; idx++) {
@@ -489,7 +550,7 @@ export function WaveformTimeline({
     tracks.forEach((track, ti) => {
       const laneTop = tops[ti] + 4;
       const laneH = laneHeightOf(ti) - 8;
-      const tc = track.color ?? trackColor(ti); // track identity color (custom or auto)
+      const tc = track.color ?? trackColor(ti, th.trackColors); // identity color (custom or auto)
       for (const clip of track.clips) {
         const d = drag.current;
         let startSec = clip.timeline_start / sr;
@@ -518,17 +579,17 @@ export function WaveformTimeline({
         const w = lenSec * pps;
         if (x0 + w < 0 || x0 > width) continue;
         const isSel = clip.id === selected;
+        // Fill and stroke share rounded geometry; the half-pixel crisping offset only
+        // applies to odd line widths, so the selected 2px border stays sharp (W-37).
+        const rx0 = Math.round(x0);
+        const rw = Math.round(w);
+        const off = isSel ? 0 : 0.5; // 2px (even) vs 1px (odd) stroke
         ctx.fillStyle = hexA(tc, isSel ? th.clipAlphaSel : th.clipAlpha);
         ctx.globalAlpha = ghost ? 0.6 : 1;
-        ctx.fillRect(x0, drawTop, w, laneH);
+        ctx.fillRect(rx0, drawTop, rw, laneH);
         ctx.strokeStyle = isSel ? tc : hexA(tc, 0.7);
         ctx.lineWidth = isSel ? 2 : 1;
-        ctx.strokeRect(
-          Math.round(x0) + 0.5,
-          drawTop + 0.5,
-          Math.round(w),
-          laneH - 1,
-        );
+        ctx.strokeRect(rx0 + off, drawTop + off, rw - 2 * off, laneH - 2 * off);
 
         const pyr = peaks.current.get(clip.source_id);
         if (pyr)
@@ -557,8 +618,8 @@ export function WaveformTimeline({
           ctx.beginPath();
           ctx.rect(x0 + 2, drawTop, Math.max(0, w - 4), labelH);
           ctx.clip();
-          ctx.fillStyle = th.labelText;
-          ctx.font = "10px system-ui, sans-serif";
+          ctx.fillStyle = labelColorFor(tc);
+          ctx.font = th.labelFont;
           ctx.textBaseline = "middle";
           ctx.fillText(clip.name, x0 + 5, drawTop + labelH / 2 + 0.5);
           ctx.restore();
@@ -747,10 +808,20 @@ export function WaveformTimeline({
     zone === "trim-start" || zone === "trim-end"
       ? "col-resize"
       : zone === "fade-in" || zone === "fade-out"
-        ? "pointer"
+        ? "ew-resize" // horizontal drag, not a click (W-28)
         : zone === "body"
           ? "grab"
           : "default";
+
+  // Mid-drag cursor: keep the gesture's own cursor, not a blanket "grabbing" (W-28).
+  const dragCursor = (d: Drag): string =>
+    !d
+      ? "default"
+      : d.kind === "trim-start" || d.kind === "trim-end"
+        ? "col-resize"
+        : d.kind === "fade-in" || d.kind === "fade-out"
+          ? "ew-resize"
+          : "grabbing";
 
   // ---- Ruler scrubbing (sets the playhead / seeks) ----
   const rulerScrub = useRef(false);
@@ -910,47 +981,67 @@ export function WaveformTimeline({
     e.dataTransfer.dropEffect = "copy";
   };
 
-  const onCanvasDrop = (e: React.DragEvent) => {
+  const onCanvasDrop = async (e: React.DragEvent) => {
     const sourceId = e.dataTransfer.getData("application/x-waver-source");
     if (!sourceId || !project) return;
     e.preventDefault();
     const src = project.sources.find((s) => s.id === sourceId);
     if (!src) return;
-    if (project.tracks.length === 0) {
-      api.addTrack(); // empty timeline — make a track first, then drag again
-      return;
-    }
     const el = canvasRef.current ?? wrapRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+    const spec = (start: number): ClipSpec => ({
+      name: (src.path.split(/[\\/]/).pop() ?? "Clip").replace(/\.[^.]+$/, ""),
+      source_id: src.id,
+      source_channel: null,
+      source_in: 0,
+      source_out: src.frames,
+      timeline_start: start,
+      gain_db: 0,
+      fade_in_len: 0,
+      fade_in_curve: "linear",
+      fade_out_len: 0,
+      fade_out_curve: "linear",
+    });
+    const place = async (
+      track: ProjectView["tracks"][number] | { id: string },
+      start: number,
+      priorView: ProjectView,
+    ) => {
+      const before = new Set(
+        priorView.tracks.flatMap((t) => t.clips.map((cl) => cl.id)),
+      );
+      const view = await api.paste(spec(start), track.id);
+      const placed = view?.tracks
+        .flatMap((t) => t.clips)
+        .find((cl) => !before.has(cl.id));
+      if (placed) {
+        setSelected(placed.id);
+        revealSec(placed.timeline_start / sr);
+      }
+    };
+    if (project.tracks.length === 0) {
+      // Empty timeline: complete the drop, don't swallow it (W-09).
+      const view = await api.addTrack();
+      const t0 = view?.tracks[0];
+      if (!t0 || !view) return;
+      await place(t0, Math.round(Math.max(0, xToSec(x)) * sr), view);
+      return;
+    }
     // Clamp into the lane range so a drop above/below lands on a valid track.
     const raw = trackIndexAtY(y);
     const ti = raw >= 0 ? raw : project.tracks.length - 1;
     const track = project.tracks[ti];
     if (!track) return;
-    const start = freeStartOn(
-      track,
-      Math.round(Math.max(0, xToSec(x)) * sr),
-      src.frames,
-    );
-    api.paste(
-      {
-        name: (src.path.split(/[\\/]/).pop() ?? "Clip").replace(/\.[^.]+$/, ""),
-        source_id: src.id,
-        source_channel: null,
-        source_in: 0,
-        source_out: src.frames,
-        timeline_start: start,
-        gain_db: 0,
-        fade_in_len: 0,
-        fade_in_curve: "linear",
-        fade_out_len: 0,
-        fade_out_curve: "linear",
-      },
-      track.id,
-    );
+    const wanted = Math.round(Math.max(0, xToSec(x)) * sr);
+    const start = freeStartOn(track, wanted, src.frames);
+    await place(track, start, project);
+    if (start !== wanted)
+      onNotice(
+        `Placed at ${fmtTimecode(start / sr)} — no room at the drop point.`,
+      );
   };
 
   const onWheel = (e: React.WheelEvent) => {
@@ -1000,8 +1091,37 @@ export function WaveformTimeline({
   const trackOfClip = (id: string) =>
     project?.tracks.find((t) => t.clips.some((c) => c.id === id)) ?? null;
 
+  // Bring a timeline position into view (used after paste/duplicate/drop/take; W-06/08).
+  const revealSec = useCallback(
+    (sec: number) => {
+      const viewSec = width / pps;
+      setScrollSec((s) =>
+        sec < s || sec > s + viewSec ? Math.max(0, sec - viewSec * 0.15) : s,
+      );
+    },
+    [width, pps],
+  );
+
+  // Select + reveal the clip a finished take committed (W-06). Waits for the refreshed
+  // project that contains it; a notice explains any relocation the overlay missed.
+  const seenTakeSeq = useRef(0);
+  useEffect(() => {
+    if (!lastTake || lastTake.seq === seenTakeSeq.current || !project) return;
+    const c = findClip(project, lastTake.clipId);
+    if (!c) return; // refresh not landed yet
+    seenTakeSeq.current = lastTake.seq;
+    setSelected(lastTake.clipId);
+    const startS = c.timeline_start / sr;
+    revealSec(startS);
+    if (Math.abs(startS - recStartSec.current) > 0.05)
+      onNotice(
+        `Take placed at ${fmtTimecode(startS)} — the watched position was occupied.`,
+      );
+  }, [lastTake, project, sr, revealSec, onNotice]);
+
   // ---- Clipboard: copy / cut / paste / duplicate the selected clip ----
   const clipboard = useRef<ClipView | null>(null);
+  const [hasClipboard, setHasClipboard] = useState(false);
   const specFrom = (c: ClipView, timeline_start: number): ClipSpec => ({
     name: c.name,
     source_id: c.source_id,
@@ -1018,35 +1138,58 @@ export function WaveformTimeline({
 
   const copySel = useCallback(() => {
     const c = project && selected ? findClip(project, selected) : null;
-    if (c) clipboard.current = c;
+    if (c) {
+      clipboard.current = c;
+      setHasClipboard(true);
+    }
   }, [project, selected]);
 
   const cutSel = useCallback(() => {
     const c = project && selected ? findClip(project, selected) : null;
     if (c) {
       clipboard.current = c;
+      setHasClipboard(true);
       api.del(c.id, false);
       setSelected(null);
     }
   }, [project, selected, api]);
 
-  const pasteAtPlayhead = useCallback(() => {
+  const pasteAtPlayhead = useCallback(async () => {
     const c = clipboard.current;
     if (!c || !project) return;
     // The clipboard source must still exist (New/Open can replace the pool).
     if (!project.sources.some((s) => s.id === c.source_id)) {
       clipboard.current = null;
+      setHasClipboard(false);
+      onNotice(
+        "The clipboard clip's audio is no longer in this project — clipboard cleared.",
+      );
       return;
     }
     const track =
-      project.tracks.find((t) => t.id === armedTrackId) ?? project.tracks[0];
+      project.tracks.find((t) => t.id === effArmedId) ?? project.tracks[0];
     if (!track) return;
     const len = c.source_out - c.source_in;
-    const start = freeStartOn(track, Math.round(playheadSec * sr), len);
-    api.paste(specFrom(c, start), track.id);
-  }, [armedTrackId, project, playheadSec, sr, api]);
+    const wanted = Math.round(playheadSec * sr);
+    const start = freeStartOn(track, wanted, len);
+    const before = new Set(
+      project.tracks.flatMap((t) => t.clips.map((cl) => cl.id)),
+    );
+    const view = await api.paste(specFrom(c, start), track.id);
+    const placed = view?.tracks
+      .flatMap((t) => t.clips)
+      .find((cl) => !before.has(cl.id));
+    if (placed) {
+      setSelected(placed.id);
+      revealSec(placed.timeline_start / sr);
+    }
+    if (start !== wanted)
+      onNotice(
+        `Pasted at ${fmtTimecode(start / sr)} — no room at the playhead.`,
+      );
+  }, [effArmedId, project, playheadSec, sr, api, onNotice, revealSec]);
 
-  const duplicateSel = useCallback(() => {
+  const duplicateSel = useCallback(async () => {
     const c = project && selected ? findClip(project, selected) : null;
     const track = c ? trackOfClip(c.id) : null;
     if (!c || !track) return;
@@ -1057,8 +1200,24 @@ export function WaveformTimeline({
       c.timeline_start + len,
       Math.round(playheadSec * sr),
     );
-    api.duplicate(c.id, freeStartOn(track, wanted, len));
-  }, [project, selected, playheadSec, sr, api]);
+    const start = freeStartOn(track, wanted, len);
+    const before = new Set(
+      (project?.tracks ?? []).flatMap((t) => t.clips.map((cl) => cl.id)),
+    );
+    const view = await api.duplicate(c.id, start);
+    const placed = view?.tracks
+      .flatMap((t) => t.clips)
+      .find((cl) => !before.has(cl.id));
+    if (placed) {
+      setSelected(placed.id);
+      revealSec(placed.timeline_start / sr);
+    }
+    if (start !== wanted)
+      onNotice(
+        `Duplicated to ${fmtTimecode(start / sr)} — no room at the wanted spot.`,
+      );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, selected, playheadSec, sr, api, onNotice, revealSec]);
 
   // Arm the selected clip's track (the DAW-standard 'R' shortcut).
   const armSelected = useCallback(() => {
@@ -1087,6 +1246,16 @@ export function WaveformTimeline({
     if (end <= 0) return;
     setPps(clampPps((width * 0.98) / end));
   }, [contentEndSec, width]);
+
+  // Keyboard zoom centered on the playhead (W-25).
+  const zoomStep = useCallback(
+    (dir: 1 | -1) => {
+      const np = clampPps(dir === 1 ? pps * 1.5 : pps / 1.5);
+      setPps(np);
+      setScrollSec(Math.max(0, playheadSec - width / np / 2));
+    },
+    [pps, playheadSec, width],
+  );
 
   // Zoom so the selected clip fills the viewport (Audacity "Zoom to Selection").
   const zoomToSelection = useCallback(() => {
@@ -1163,6 +1332,14 @@ export function WaveformTimeline({
     zoomToSelection,
     nudgeSelected,
     foldAll,
+    recording,
+    canRecord,
+    onToggleRecord,
+    showShortcuts,
+    stopPlay,
+    seek,
+    seekEnd: () => seek(Math.round(contentEndSec() * sr)),
+    zoomStep,
     toggleShortcuts: () => setShowShortcuts((s) => !s),
     toggleSnap: () => setSnapEnabled((s) => !s),
   });
@@ -1183,6 +1360,14 @@ export function WaveformTimeline({
     zoomToSelection,
     nudgeSelected,
     foldAll,
+    recording,
+    canRecord,
+    onToggleRecord,
+    showShortcuts,
+    stopPlay,
+    seek,
+    seekEnd: () => seek(Math.round(contentEndSec() * sr)),
+    zoomStep,
     toggleShortcuts: () => setShowShortcuts((s) => !s),
     toggleSnap: () => setSnapEnabled((s) => !s),
   };
@@ -1194,6 +1379,19 @@ export function WaveformTimeline({
       const k = kb.current;
       const mod = e.metaKey || e.ctrlKey;
       const key = e.key.toLowerCase();
+      // Modal gate: while the shortcuts overlay is up, only Escape and '?' work —
+      // destructive shortcuts must not fire behind an aria-modal dialog (W-03).
+      if (k.showShortcuts) {
+        if (
+          e.key === "Escape" ||
+          e.key === "?" ||
+          (key === "/" && e.shiftKey)
+        ) {
+          e.preventDefault();
+          setShowShortcuts(false);
+        }
+        return;
+      }
       if (mod && key === "z") {
         e.preventDefault();
         e.shiftKey ? k.api.redo() : k.api.undo();
@@ -1215,12 +1413,25 @@ export function WaveformTimeline({
           k.api.del(k.selected, k.ripple);
           setSelected(null);
         }
-      } else if (e.key === "ArrowLeft" && !mod) {
+      } else if (e.key === "ArrowLeft" && !mod && k.selected) {
         e.preventDefault();
         k.nudgeSelected(-1, e.shiftKey);
-      } else if (e.key === "ArrowRight" && !mod) {
+      } else if (e.key === "ArrowRight" && !mod && k.selected) {
         e.preventDefault();
         k.nudgeSelected(1, e.shiftKey);
+      } else if (e.key === "Home" && !mod) {
+        e.preventDefault();
+        k.seek(0);
+      } else if (e.key === "End" && !mod) {
+        e.preventDefault();
+        k.seekEnd();
+      } else if ((e.key === "+" || e.key === "=") && !mod) {
+        k.zoomStep(1);
+      } else if (e.key === "-" && !mod) {
+        k.zoomStep(-1);
+      } else if (key === "r" && !mod && e.shiftKey) {
+        e.preventDefault();
+        if (k.canRecord || k.recording) k.onToggleRecord();
       } else if (key === "r" && !mod) {
         k.armSelected();
       } else if (key === "s" && !mod && !e.shiftKey) {
@@ -1237,11 +1448,17 @@ export function WaveformTimeline({
         e.preventDefault();
         k.toggleShortcuts();
       } else if (e.key === "Escape") {
-        setShowShortcuts(false);
-        setSelected(null);
+        // Hierarchical Escape (W-03/W-25): stop playback first, then clear the
+        // selection. Popovers/overlay consume Escape before it reaches here.
+        if (k.playing) k.stopPlay();
+        else setSelected(null);
       } else if (e.key === " ") {
         e.preventDefault();
-        k.playing ? k.togglePause() : k.startPlay();
+        // A rolling take owns Space: stop capture, never start playback into the
+        // live mic (FR-2.3 clean capture; W-01).
+        if (k.recording) k.onToggleRecord();
+        else if (k.playing) k.togglePause();
+        else k.startPlay();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -1276,6 +1493,44 @@ export function WaveformTimeline({
           >
             <IconStop size={16} />
           </button>
+          <button
+            type="button"
+            className={`transport rec${recording ? " recording" : ""}`}
+            disabled={!canRecord}
+            onClick={onToggleRecord}
+            title={
+              recording
+                ? "Stop recording (Space or Shift+R)"
+                : effArmedId
+                  ? "Record (Shift+R)"
+                  : `Record (Shift+R) — nothing armed, take appends to ${project?.tracks[0]?.name ?? "a new track"}`
+            }
+            aria-label={
+              recording
+                ? `Stop recording, elapsed ${fmtTimecode(recElapsed)}`
+                : "Start recording"
+            }
+            aria-pressed={recording}
+          >
+            <span
+              className={recording ? "rec-square" : "rec-dot"}
+              aria-hidden="true"
+            />
+          </button>
+        </div>
+        <div className="wave-timecode">
+          {recording ? (
+            <span className="tc-rec" role="timer">
+              {fmtTimecode(recElapsed)}
+            </span>
+          ) : (
+            <span className="tc-time">{fmtTimecode(playheadSec)}</span>
+          )}
+          {beatGrid && (
+            <span className="tc-beats">
+              {barsBeats(playheadSec, bpm, stepSec)}
+            </span>
+          )}
         </div>
         <span className="tb-sep" />
         <button
@@ -1323,7 +1578,7 @@ export function WaveformTimeline({
           title="Zoom to selection (E)"
           aria-label="Zoom to selection"
         >
-          <IconZoomIn strokeWidth={2.4} />
+          <IconZoomSel />
         </button>
         <button
           type="button"
@@ -1334,7 +1589,6 @@ export function WaveformTimeline({
         >
           <IconFoldAll />
         </button>
-        <span className="tb-sep" />
         <button
           type="button"
           className={`tbtn icon-only${snapEnabled ? " active" : ""}`}
@@ -1355,7 +1609,6 @@ export function WaveformTimeline({
         >
           <IconFollow />
         </button>
-        <span className="tb-sep" />
         <div
           className="grid-controls"
           title="Beat grid — playhead & edits snap to it"
@@ -1369,102 +1622,99 @@ export function WaveformTimeline({
             <IconGrid />
             <span>Grid</span>
           </button>
-          {beatGrid && (
-            <>
-              <input
-                type="number"
-                className="grid-bpm"
-                min={20}
-                max={300}
-                value={bpm}
-                onChange={(e) =>
-                  setBpm(
-                    Math.min(300, Math.max(20, Number(e.target.value) || 120)),
-                  )
-                }
-                title="Tempo (BPM)"
-                aria-label="Tempo in BPM"
-              />
-              <span className="grid-unit">BPM</span>
-              <select
-                className="grid-div"
-                value={gridDiv}
-                onChange={(e) => setGridDiv(Number(e.target.value))}
-                title="Grid resolution (steps per beat)"
-                aria-label="Grid resolution"
-              >
-                <option value={1}>1/4</option>
-                <option value={2}>1/8</option>
-                <option value={3}>1/8T</option>
-                <option value={4}>1/16</option>
-                <option value={8}>1/32</option>
-              </select>
-            </>
-          )}
+          <input
+            type="number"
+            className="grid-bpm"
+            min={20}
+            max={300}
+            value={bpm}
+            disabled={!beatGrid}
+            onChange={(e) =>
+              setBpm(Math.min(300, Math.max(20, Number(e.target.value) || 120)))
+            }
+            title="Tempo (BPM)"
+            aria-label="Tempo in BPM"
+          />
+          <span className="grid-unit">BPM</span>
+          <select
+            className="grid-div"
+            value={gridDiv}
+            disabled={!beatGrid}
+            onChange={(e) => setGridDiv(Number(e.target.value))}
+            title="Grid resolution (steps per beat)"
+            aria-label="Grid resolution"
+          >
+            <option value={1}>1/4</option>
+            <option value={2}>1/8</option>
+            <option value={3}>1/8T</option>
+            <option value={4}>1/16</option>
+            <option value={8}>1/32</option>
+          </select>
         </div>
         <span className="tb-sep" />
         <button
           type="button"
-          className="tbtn"
+          className="tbtn icon-only"
           disabled={!selected}
           onClick={splitAtPlayhead}
           title="Split at playhead (S)"
+          aria-label="Split"
         >
           <IconSplit />
-          <span>Split</span>
         </button>
         <button
           type="button"
-          className="tbtn"
+          className="tbtn icon-only"
           disabled={!selected}
           onClick={duplicateSel}
           title="Duplicate clip (⌘/Ctrl+D)"
+          aria-label="Duplicate"
         >
           <IconDuplicate />
-          <span>Duplicate</span>
         </button>
         <button
           type="button"
-          className="tbtn"
+          className="tbtn icon-only"
           disabled={!selected}
           onClick={cutSel}
           title="Cut clip (⌘/Ctrl+X)"
+          aria-label="Cut"
         >
           <IconCut />
-          <span>Cut</span>
         </button>
         <button
           type="button"
-          className="tbtn"
+          className="tbtn icon-only"
           disabled={!selected}
           onClick={copySel}
           title="Copy clip (⌘/Ctrl+C)"
+          aria-label="Copy"
         >
           <IconCopy />
-          <span>Copy</span>
         </button>
         <button
           type="button"
-          className="tbtn"
+          className="tbtn icon-only"
+          disabled={!hasClipboard}
           onClick={pasteAtPlayhead}
           title="Paste at playhead on the armed track (⌘/Ctrl+V)"
+          aria-label="Paste"
         >
           <IconPaste />
-          <span>Paste</span>
         </button>
         <button
           type="button"
-          className="tbtn"
+          className="tbtn icon-only"
           disabled={!selected}
           onClick={() => selected && api.splitChannels(selected)}
           title="Split into mono channels"
+          aria-label="Channels"
         >
           <IconChannels />
-          <span>Channels</span>
         </button>
         <button
           type="button"
-          className="tbtn danger"
+          className="tbtn danger icon-only"
           disabled={!selected}
           onClick={() => {
             if (selected) {
@@ -1473,9 +1723,9 @@ export function WaveformTimeline({
             }
           }}
           title="Delete clip"
+          aria-label="Delete"
         >
           <IconTrash />
-          <span>Delete</span>
         </button>
         <label
           className="ripple-toggle"
@@ -1518,17 +1768,6 @@ export function WaveformTimeline({
         >
           <IconHelp />
         </button>
-        <span className="wave-info">
-          {beatGrid && (
-            <>
-              <b className="wave-barbeat">
-                {barsBeats(playheadSec, bpm, stepSec)}
-              </b>
-              {" · "}
-            </>
-          )}
-          {playheadSec.toFixed(2)}s · {pps.toFixed(0)} px/s
-        </span>
       </div>
       <div className="wave-body">
         {/* Sticky ruler row: a fixed spacer over the track headers + the ruler canvas,
@@ -1538,7 +1777,7 @@ export function WaveformTimeline({
           <canvas
             ref={rulerRef}
             className="wave-ruler-canvas"
-            style={{ width: "100%", cursor: "text" }}
+            style={{ width: "100%", cursor: "ew-resize" }}
             onMouseDown={onRulerDown}
             onMouseMove={onRulerMove}
             onMouseUp={onRulerUp}
@@ -1549,7 +1788,8 @@ export function WaveformTimeline({
           <TrackHeaders
             project={project}
             api={api}
-            armedTrackId={armedTrackId}
+            armedTrackId={effArmedId}
+            inputLevels={inputLevels}
             onToggleArm={toggleArm}
             collapsed={collapsed}
             onToggleCollapse={toggleCollapse}
@@ -1560,6 +1800,15 @@ export function WaveformTimeline({
             onDragOver={onCanvasDragOver}
             onDrop={onCanvasDrop}
           >
+            {project &&
+              !recording &&
+              project.tracks.length > 0 &&
+              project.tracks.every((t) => t.clips.length === 0) && (
+                <p className="wave-empty-overlay">
+                  Press ● Rec in the transport to record, or drag audio in from
+                  the Media pool.
+                </p>
+              )}
             {!project || (project.tracks.length === 0 && !recording) ? (
               <p className="wave-empty">
                 Record, import, or drag a file from the pool to start your
@@ -1572,7 +1821,7 @@ export function WaveformTimeline({
                 aria-label="Timeline editor"
                 style={{
                   width: "100%",
-                  cursor: drag.current ? "grabbing" : cursor,
+                  cursor: drag.current ? dragCursor(drag.current) : cursor,
                 }}
                 onMouseDown={onMouseDown}
                 onMouseMove={onMouseMove}
@@ -1593,13 +1842,40 @@ export function WaveformTimeline({
   );
 }
 
-/** Keyboard shortcuts cheat-sheet (toggled with `?`). */
+/** Keyboard shortcuts cheat-sheet (toggled with `?`). Focus moves into the dialog on
+ *  open, Tab is trapped inside, and focus returns to the opener on close (W-03). */
 function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
+    return () => opener?.focus?.();
+  }, []);
+  const trapTab = (e: React.KeyboardEvent) => {
+    if (e.key !== "Tab") return;
+    const focusables = cardRef.current?.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, [tabindex]:not([tabindex="-1"])',
+    );
+    if (!focusables || focusables.length === 0) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
   const groups: { title: string; items: [string, string][] }[] = [
     {
       title: "Transport",
       items: [
-        ["Space", "Play / pause"],
+        ["Space", "Play / pause (stops a rolling take)"],
+        ["Shift + R", "Start / stop recording"],
+        ["Esc", "Stop playback · clear selection"],
+        ["Home / End", "Jump to start / end"],
         ["S", "Split clip at playhead"],
         ["R", "Arm selected clip's track"],
       ],
@@ -1616,8 +1892,16 @@ function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
       ],
     },
     {
+      title: "File",
+      items: [
+        ["⌘/Ctrl + S", "Save project"],
+        ["⇧ ⌘/Ctrl + S", "Save As"],
+      ],
+    },
+    {
       title: "View",
       items: [
+        ["+ / −", "Zoom in / out at playhead"],
         ["F", "Fit project to window"],
         ["E", "Zoom to selection"],
         ["T", "Fold / unfold all tracks"],
@@ -1636,12 +1920,18 @@ function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
       aria-label="Keyboard shortcuts"
       onMouseDown={onClose}
     >
-      <div className="shortcuts-card" onMouseDown={(e) => e.stopPropagation()}>
+      <div
+        className="shortcuts-card"
+        ref={cardRef}
+        onMouseDown={(e) => e.stopPropagation()}
+        onKeyDown={trapTab}
+      >
         <div className="shortcuts-head">
           <h2>Keyboard shortcuts</h2>
           <button
             type="button"
             className="tbtn icon-only"
+            ref={closeRef}
             onClick={onClose}
             aria-label="Close"
             title="Close (Esc)"

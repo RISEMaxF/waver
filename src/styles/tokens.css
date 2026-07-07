@@ -5,16 +5,18 @@
  * canvas renderer reads the same --wave-* tokens via getComputedStyle, so a rebrand
  * or a light/dark swap is a change to THIS file (plus a [data-theme] block) only.
  *
- * Toggle themes by setting `data-theme="light"|"dark"` on <html>. With no attribute,
- * the OS preference decides (see prefers-color-scheme below).
+ * The theme attribute (`data-theme="light"|"dark"` on <html>) is set before first
+ * paint by an inline script in index.html (saved preference, else OS scheme), so
+ * there is exactly ONE light palette below — no duplicated @media block to drift.
  */
 
 :root {
   /* ---- primitives ---- */
+  /* Gray ramp is strictly monotonic: higher number = darker (W-21). */
   --gray-950: #0e1116;
-  --gray-900: #161b22;
-  --gray-850: #12161c;
-  --gray-800: #0f1319;
+  --gray-900: #12161c;
+  --gray-850: #161b22;
+  --gray-800: #1c232e;
   --gray-700: #232b36;
   --blue-400: #4cc2ff;
   --blue-300: #8fd6ff;
@@ -23,8 +25,9 @@
   --amber-500: #d29922;
 
   /* ---- semantic: color (dark is the default) ---- */
+  color-scheme: dark; /* native widgets/scrollbars follow the forced theme (W-20) */
   --color-surface: var(--gray-950);
-  --color-panel: var(--gray-900);
+  --color-panel: var(--gray-850);
   --color-border: var(--gray-700);
   --color-text: #e6edf3;
   --color-text-muted: #9fabbb; /* raised from #8b97a6 for legibility (F5) */
@@ -33,7 +36,8 @@
   --color-warn: var(--amber-500);
   --color-err: var(--red-500);
   --color-solo: #ffd23f; /* distinct hue so Solo ≠ the blue accent (F22) */
-  --color-focus-ring: var(--blue-400);
+  /* Follows the accent so each theme's ring has contrast on its own surface (W-10). */
+  --color-focus-ring: var(--color-accent);
 
   /* Back-compat aliases (existing rules use these short names). */
   --bg: var(--color-surface);
@@ -46,12 +50,28 @@
   --warn: var(--color-warn);
   --err: var(--color-err);
 
+  /* ---- elevation (W-23) ---- */
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 35%);
+  --shadow-popover: 0 8px 28px rgb(0 0 0 / 35%);
+  --shadow-modal: 0 12px 48px rgb(0 0 0 / 45%);
+
+  /* ---- track identity palette (Ableton-style), canvas + gutter share it (W-11) ---- */
+  --track-1: #2f81f7; /* not the accent blue — selection stays distinguishable */
+  --track-2: #7ee787;
+  --track-3: #ffa657;
+  --track-4: #d2a8ff;
+  --track-5: #f778ba;
+  --track-6: #ffd966;
+  --track-7: #79c0ff;
+  --track-8: #56d364;
+
   /* ---- canvas palette (shared with the timeline renderer via getComputedStyle) ---- */
   --wave: var(--blue-400);
   --wave-sel: var(--blue-300);
-  --wave-lane: var(--gray-850);
-  --wave-lane-alt: var(--gray-800);
-  --wave-grid: #1c232e;
+  /* Zebra pair widened to a perceptible ~1.10:1 step (W-21). */
+  --wave-lane: #151a21;
+  --wave-lane-alt: #10141a;
+  --wave-grid: #242d3a;
   --wave-ruler: var(--color-text-muted);
   --wave-clip: #16324a;
   --wave-clip-sel: #1d4a6b;
@@ -69,31 +89,35 @@
   --wave-clip-alpha: 0.22;
   --wave-clip-alpha-sel: 0.4;
 
-  /* ---- spacing scale ---- */
+  /* ---- spacing scale (4px grid; W-24) ---- */
   --space-1: 0.25rem;
+  --space-1-5: 6px;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
   --space-4: 1rem;
   --space-5: 1.5rem;
-  --space-6: 2.5rem;
+  --space-6: 2rem;
 
   /* ---- radii ---- */
+  --radius-xs: 2px;
   --radius-sm: 4px;
   --radius-md: 7px;
   --radius-lg: 11px;
 
   /* ---- typography ---- */
   --font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-size-xs: 0.72rem;
+  --font-mono:
+    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --font-size-xs: 0.75rem;
   --font-size-sm: 0.85rem;
   --font-size-md: 1rem;
   --font-size-lg: 1.25rem;
-  --font-size-xl: 1.75rem;
-  --font-size-2xl: 2.6rem;
+  --font-size-canvas: 10px; /* clip/ruler labels drawn by the renderer (W-22) */
 }
 
 /* ---- Light theme: override only the semantic + canvas colors ---- */
 :root[data-theme="light"] {
+  color-scheme: light;
   --color-surface: #f6f8fa;
   --color-panel: #ffffff;
   --color-border: #d0d7de;
@@ -103,6 +127,21 @@
   --color-ok: #1a7f37;
   --color-warn: #9a6700;
   --color-err: #cf222e;
+  --color-solo: #b8860b;
+
+  --shadow-sm: 0 1px 2px rgb(31 35 40 / 12%);
+  --shadow-popover: 0 8px 28px rgb(31 35 40 / 15%);
+  --shadow-modal: 0 12px 48px rgb(31 35 40 / 22%);
+
+  /* Darker, saturated variants — all ≥3:1 on the light lane (W-11). */
+  --track-1: #0969da;
+  --track-2: #1a7f37;
+  --track-3: #bc4c00;
+  --track-4: #8250df;
+  --track-5: #bf3989;
+  --track-6: #9a6700;
+  --track-7: #0550ae;
+  --track-8: #116329;
 
   --wave: #0969da;
   --wave-sel: #218bff;
@@ -113,40 +152,10 @@
   --wave-clip-sel: #b6d7f2;
   --wave-clip-edge: #6cb0e6;
   --wave-clip-edge-sel: #0969da;
-  --color-solo: #b8860b;
   --wave-fade-shade: rgba(20, 24, 30, 0.3);
   --wave-fade-line: rgba(25, 30, 40, 0.85);
   --wave-fade-handle: #1f2328;
+  --wave-label-text: #1f2328;
   --wave-clip-alpha: 0.34;
   --wave-clip-alpha-sel: 0.55;
-}
-
-/* Follow the OS preference when no explicit theme is chosen. */
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme]) {
-    --color-solo: #b8860b;
-    --wave-fade-shade: rgba(20, 24, 30, 0.3);
-    --wave-fade-line: rgba(25, 30, 40, 0.85);
-    --wave-fade-handle: #1f2328;
-    --wave-clip-alpha: 0.34;
-    --wave-clip-alpha-sel: 0.55;
-    --color-surface: #f6f8fa;
-    --color-panel: #ffffff;
-    --color-border: #d0d7de;
-    --color-text: #1f2328;
-    --color-text-muted: #59636e;
-    --color-accent: #0969da;
-    --color-ok: #1a7f37;
-    --color-warn: #9a6700;
-    --color-err: #cf222e;
-    --wave: #0969da;
-    --wave-sel: #218bff;
-    --wave-lane: #eef1f4;
-    --wave-lane-alt: #e6eaef;
-    --wave-grid: #d8dee4;
-    --wave-clip: #cfe3f5;
-    --wave-clip-sel: #b6d7f2;
-    --wave-clip-edge: #6cb0e6;
-    --wave-clip-edge-sel: #0969da;
-  }
 }

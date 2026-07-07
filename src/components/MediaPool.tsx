@@ -5,6 +5,7 @@ import type { ProjectView, SourceView } from "../audio/project";
 import {
   IconChevronLeft,
   IconChevronRight,
+  IconImport,
   IconPlay,
   IconPlus,
   IconStop,
@@ -19,12 +20,16 @@ export function MediaPool({
   project,
   outputId,
   onChanged,
+  onNotice,
   onError,
+  onPlace,
 }: {
   project: ProjectView | null;
   outputId: string | null;
   onChanged: () => void;
+  onNotice: (msg: string) => void;
   onError: (msg: string) => void;
+  onPlace: (sourceId: string) => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -56,7 +61,7 @@ export function MediaPool({
       return;
     }
     if (!outputId) {
-      onError("Select an output device to preview.");
+      onNotice("Select an output device to preview.");
       return;
     }
     try {
@@ -102,7 +107,7 @@ export function MediaPool({
         <div className="pool-actions">
           <button
             type="button"
-            className="tbtn"
+            className="tbtn sm"
             disabled={busy}
             onClick={addFiles}
             title="Import files into the pool"
@@ -134,6 +139,7 @@ export function MediaPool({
               source={s}
               playing={previewId === s.id}
               onToggle={() => togglePreview(s.id)}
+              onPlace={() => onPlace(s.id)}
             />
           ))
         )}
@@ -146,10 +152,12 @@ function PoolItem({
   source,
   playing,
   onToggle,
+  onPlace,
 }: {
   source: SourceView;
   playing: boolean;
   onToggle: () => void;
+  onPlace: () => void;
 }) {
   const dur = source.frames / Math.max(1, source.sample_rate);
   const ch =
@@ -162,11 +170,20 @@ function PoolItem({
     <div
       className={`pool-item${playing ? " playing" : ""}`}
       draggable
+      tabIndex={0}
+      role="listitem"
+      aria-label={`${basename(source.path)}, ${dur.toFixed(1)} seconds, ${ch}. Press Enter to place at the playhead.`}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          onPlace();
+        }
+      }}
       onDragStart={(e) => {
         e.dataTransfer.setData("application/x-waver-source", source.id);
         e.dataTransfer.effectAllowed = "copy";
       }}
-      title={`${source.path}\nDrag onto a track to place`}
+      title={`${source.path}\nDrag onto a track, or place at the playhead`}
     >
       <button
         type="button"
@@ -186,6 +203,18 @@ function PoolItem({
           {dur.toFixed(1)}s · {ch}
         </span>
       </div>
+      <button
+        type="button"
+        className="pool-place"
+        onClick={(e) => {
+          e.stopPropagation();
+          onPlace();
+        }}
+        title="Place at playhead (Enter)"
+        aria-label="Place at playhead"
+      >
+        <IconImport size={13} />
+      </button>
     </div>
   );
 }

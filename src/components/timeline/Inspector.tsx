@@ -1,6 +1,40 @@
 import { useState } from "react";
 import type { ClipView, FadeCurve, ProjectView } from "../../audio/project";
 import type { ProjectApi } from "../../audio/useProject";
+import { fmtGainDb, fmtTimecode, parseTimecode } from "./renderer";
+
+/** Editable clip start time (h:mm:ss.mmm or plain seconds), committing on blur/Enter
+ *  via the same move op as dragging (W-27). */
+function StartField({
+  seconds,
+  onCommit,
+}: {
+  seconds: number;
+  onCommit: (sec: number) => void;
+}) {
+  const [draft, setDraft] = useState(fmtTimecode(seconds));
+  const commit = () => {
+    const sec = parseTimecode(draft);
+    if (sec !== null && Math.abs(sec - seconds) > 1e-6) onCommit(sec);
+    else setDraft(fmtTimecode(seconds));
+  };
+  return (
+    <input
+      className="insp-time"
+      value={draft}
+      aria-label="Clip start time"
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") {
+          setDraft(fmtTimecode(seconds));
+          e.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
 
 const CURVES: FadeCurve[] = ["linear", "equal_power", "log"];
 
@@ -79,10 +113,20 @@ export function Inspector({ project, selected, api, sr }: Props) {
         />
         {src && (
           <span className="insp-meta">
-            {chLabel} · {(src.sample_rate / 1000).toFixed(1)} kHz ·{" "}
-            {lenSec.toFixed(2)}s
+            {chLabel} · {(src.sample_rate / 1000).toFixed(1)} kHz
           </span>
         )}
+        <div className="insp-row">
+          <label className="insp-label">Start</label>
+          <StartField
+            key={`${clip.id}:${clip.timeline_start}`}
+            seconds={clip.timeline_start / sr}
+            onCommit={(sec) =>
+              api.move(clip.id, track.id, Math.round(sec * sr))
+            }
+          />
+          <span className="insp-meta">Len {fmtTimecode(lenSec)}</span>
+        </div>
         <GainRow
           value={clip.gain_db}
           onChange={(v) => api.setClipGain(clip.id, v)}
@@ -133,7 +177,7 @@ export function Inspector({ project, selected, api, sr }: Props) {
   );
 }
 
-/** A compact "Gain [====] 0.0 dB" row; double-click the slider to reset to 0 dB (F37). */
+/** A compact "Gain [====] [+0.0] dB" row; double-click the slider to reset (F37). */
 function GainRow({
   value,
   onChange,
@@ -143,7 +187,12 @@ function GainRow({
 }) {
   return (
     <div className="insp-row">
-      <label className="insp-label">Gain</label>
+      <label
+        className="insp-label"
+        title="Double-click the slider to reset to 0 dB"
+      >
+        Gain
+      </label>
       <input
         type="range"
         min={-24}
@@ -152,9 +201,22 @@ function GainRow({
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         onDoubleClick={() => onChange(0)}
-        title="Double-click to reset to 0 dB"
+        aria-label="Gain"
+        aria-valuetext={fmtGainDb(value)}
       />
-      <span className="insp-val">{value.toFixed(1)} dB</span>
+      <input
+        type="number"
+        className="insp-gain-num"
+        min={-24}
+        max={12}
+        step={0.5}
+        value={value}
+        onChange={(e) =>
+          onChange(Math.max(-24, Math.min(12, Number(e.target.value) || 0)))
+        }
+        aria-label="Gain in dB"
+      />
+      <span className="insp-unit">dB</span>
     </div>
   );
 }

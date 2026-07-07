@@ -6,8 +6,10 @@ import type { ClipView, ProjectView } from "../../audio/project";
 import { pickLevel, type PeakLevel, type PeakPyramid } from "../../audio/peaks";
 
 // Per-track identity colors (Ableton-style): headers show a strip, clips take a tint.
-export const TRACK_COLORS = [
-  "#4cc2ff",
+// The palette lives in tokens.css (--track-1..8) so each theme ships colors that hold
+// ≥3:1 on its own lane background (W-11); read it live like the other canvas tokens.
+const TRACK_FALLBACK = [
+  "#2f81f7",
   "#7ee787",
   "#ffa657",
   "#d2a8ff",
@@ -16,10 +18,45 @@ export const TRACK_COLORS = [
   "#79c0ff",
   "#56d364",
 ];
-export function trackColor(index: number): string {
-  return TRACK_COLORS[
-    ((index % TRACK_COLORS.length) + TRACK_COLORS.length) % TRACK_COLORS.length
-  ];
+// Human names for the swatch picker's accessible labels (W-34); index-paired.
+export const TRACK_COLOR_NAMES = [
+  "Blue",
+  "Green",
+  "Orange",
+  "Purple",
+  "Pink",
+  "Yellow",
+  "Sky",
+  "Emerald",
+];
+
+export function trackPalette(): string[] {
+  const cs = getComputedStyle(document.documentElement);
+  return TRACK_FALLBACK.map(
+    (fb, i) => cs.getPropertyValue(`--track-${i + 1}`).trim() || fb,
+  );
+}
+
+export function trackColor(index: number, palette?: string[]): string {
+  const p = palette ?? trackPalette();
+  return p[((index % p.length) + p.length) % p.length];
+}
+
+/** Label color for text over a track-colored strip: dark ink on bright pastels,
+ *  white on the dark saturated set — chosen by relative luminance (W-11). */
+export function labelColorFor(hex: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return "#ffffff";
+  const n = parseInt(m[1], 16);
+  const lin = (c: number) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  const lum =
+    0.2126 * lin((n >> 16) & 255) +
+    0.7152 * lin((n >> 8) & 255) +
+    0.0722 * lin(n & 255);
+  return lum > 0.45 ? "#0e1116" : "#ffffff";
 }
 
 // ---- geometry ----
@@ -53,6 +90,10 @@ export interface CanvasTheme {
   labelText: string;
   clipAlpha: number;
   clipAlphaSel: number;
+  trackColors: string[];
+  /** ctx.font strings composed from the type tokens (W-22). */
+  labelFont: string;
+  smallFont: string;
 }
 
 // The canvas can't read CSS variables directly, so resolve the --wave-* design
@@ -83,10 +124,43 @@ export function readCanvasTheme(): CanvasTheme {
     labelText: v("--wave-label-text", "#ffffff"),
     clipAlpha: parseFloat(v("--wave-clip-alpha", "0.22")) || 0.22,
     clipAlphaSel: parseFloat(v("--wave-clip-alpha-sel", "0.4")) || 0.4,
+    trackColors: trackPalette(),
+    labelFont: `${v("--font-size-canvas", "10px")} ${cs.fontFamily || "system-ui, sans-serif"}`,
+    smallFont: `9px ${cs.fontFamily || "system-ui, sans-serif"}`,
   };
 }
 
 // ---- helpers ----
+
+/** Shared dB formatter: one decimal, explicit '+' for boosts (W-35). */
+export function fmtGainDb(v: number): string {
+  return `${v > 0 ? "+" : ""}${v.toFixed(1)} dB`;
+}
+
+/** Transport/inspector timecode: m:ss.mmm, gaining an hours field past 60 min. */
+export function fmtTimecode(sec: number): string {
+  const t = Math.max(0, sec);
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = Math.floor(t % 60);
+  const ms = Math.floor((t % 1) * 1000);
+  const ss = `${String(s).padStart(2, "0")}.${String(ms).padStart(3, "0")}`;
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+}
+
+/** Parse "h:mm:ss.mmm" / "m:ss" / plain seconds into seconds; null if malformed. */
+export function parseTimecode(text: string): number | null {
+  const parts = text.trim().split(":");
+  if (parts.length === 0 || parts.length > 3 || parts.some((p) => p === ""))
+    return null;
+  let sec = 0;
+  for (const p of parts) {
+    const v = Number(p);
+    if (!isFinite(v) || v < 0) return null;
+    sec = sec * 60 + v;
+  }
+  return sec;
+}
 
 /** fade-in gain shape — mirror of waver_core::FadeCurve::fade_in_gain. */
 export function fadeGain(curve: string, t: number): number {
@@ -268,7 +342,7 @@ export function drawClipWave(
       ctx.stroke();
     }
     ctx.fillStyle = th.ruler;
-    ctx.font = "9px system-ui, sans-serif";
+    ctx.font = th.smallFont;
     const labels = drawChannels.length === 2 ? ["L", "R"] : null;
     drawChannels.forEach((_c, laneIdx) => {
       const label = labels ? labels[laneIdx] : String(laneIdx + 1);

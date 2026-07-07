@@ -4,25 +4,17 @@ import { DeviceSelector } from "./DeviceSelector";
 import { Meter } from "./Meter";
 import { IconGear } from "./icons";
 
-function fmtElapsed(secs: number): string {
-  const m = Math.floor(secs / 60);
-  const s = Math.floor(secs % 60);
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
-
-/** Compact audio cluster for the top bar: a device-settings popover, a live input
- *  meter, and the record button. Keeps the recorder controls in the chrome (Audacity
- *  pattern) rather than a scrolling panel. */
+/** Compact audio cluster for the top bar: a device-settings popover and a live input
+ *  meter. Record itself lives in the timeline transport with Play/Stop (W-01). */
 export function AudioControls({
   audio,
-  onToggleRecord,
 }: {
   audio: ReturnType<typeof useAudio>;
-  onToggleRecord: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [anchorLeft, setAnchorLeft] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
   const inputName =
     audio.inputs.find((d) => d.id === audio.inputId)?.name ?? "No input";
 
@@ -52,10 +44,12 @@ export function AudioControls({
       <div className="ac-device" ref={wrapRef}>
         <button
           type="button"
+          ref={btnRef}
           className={`ac-device-btn${open ? " open" : ""}`}
           onClick={toggle}
           title="Audio device settings"
           aria-expanded={open}
+          aria-haspopup="dialog"
         >
           <IconGear />
           <span className="ac-device-name">{inputName}</span>
@@ -65,6 +59,13 @@ export function AudioControls({
             className={`ac-popover${anchorLeft ? " anchor-left" : ""}`}
             role="dialog"
             aria-label="Audio settings"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.stopPropagation();
+                setOpen(false);
+                btnRef.current?.focus();
+              }
+            }}
           >
             <DeviceSelector
               inputs={audio.inputs}
@@ -86,17 +87,6 @@ export function AudioControls({
       </div>
 
       <Meter channels={audio.levels} compact />
-
-      <button
-        type="button"
-        className={`rec-btn ${audio.recording ? "stop" : "start"}`}
-        disabled={!audio.canRecord}
-        onClick={onToggleRecord}
-        title={audio.recording ? "Stop recording" : "Record"}
-      >
-        <span className={audio.recording ? "rec-square" : "rec-dot"} />
-        {audio.recording ? fmtElapsed(audio.recElapsed) : "Rec"}
-      </button>
     </div>
   );
 }

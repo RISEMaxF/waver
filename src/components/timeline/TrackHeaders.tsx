@@ -2,19 +2,20 @@ import { useEffect, useRef, useState } from "react";
 import { ask } from "@tauri-apps/plugin-dialog";
 import type { ProjectApi } from "../../audio/useProject";
 import type { ProjectView } from "../../audio/project";
+import type { ChannelLevel } from "../../audio/types";
 import {
   IconChevronDown,
   IconChevronRight,
   IconClose,
-  IconMute,
   IconRecord,
-  IconSolo,
 } from "../icons";
 import {
   COLLAPSED_H,
   TRACK_HEIGHT,
-  TRACK_COLORS,
+  TRACK_COLOR_NAMES,
+  fmtGainDb,
   trackColor,
+  trackPalette,
 } from "./renderer";
 
 interface Props {
@@ -24,6 +25,27 @@ interface Props {
   onToggleArm: (id: string) => void;
   collapsed: Set<string>;
   onToggleCollapse: (id: string) => void;
+  /** Live input levels — drawn as a mini meter on the armed track (W-12). */
+  inputLevels: ChannelLevel[];
+}
+
+/** Tiny horizontal level bar in the armed track's header: signal + clip feedback in
+ *  the user's line of sight during capture (W-12 / FR-2.3). */
+function MiniMeter({ levels }: { levels: ChannelLevel[] }) {
+  const peak = levels.reduce((m, l) => Math.max(m, l.peak_dbfs), -60);
+  const pct = ((Math.max(-60, Math.min(0, peak)) + 60) / 60) * 100;
+  return (
+    <div
+      className="track-mini-meter"
+      role="img"
+      aria-label={`Input level ${peak <= -60 ? "silent" : `${Math.round(peak)} dB`}`}
+    >
+      <div
+        className={`track-mini-fill${peak >= -0.1 ? " clip" : ""}`}
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  );
 }
 
 /** Per-track control panel gutter (Audacity/Ableton pattern: the track owns its
@@ -35,6 +57,7 @@ export function TrackHeaders({
   onToggleArm,
   collapsed,
   onToggleCollapse,
+  inputLevels,
 }: Props) {
   const tracks = project?.tracks ?? [];
   const anySolo = tracks.some((t) => t.soloed);
@@ -84,6 +107,8 @@ export function TrackHeaders({
                 className="track-color-strip"
                 title="Track color"
                 aria-label={`${t.name} color`}
+                aria-haspopup="dialog"
+                aria-expanded={pickerFor === t.id}
                 onClick={() => setPickerFor((c) => (c === t.id ? null : t.id))}
               />
               {pickerFor === t.id && (
@@ -91,14 +116,27 @@ export function TrackHeaders({
                   className="color-popover"
                   role="dialog"
                   aria-label="Track color"
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      e.stopPropagation();
+                      setPickerFor(null);
+                      (
+                        e.currentTarget.parentElement?.querySelector(
+                          ".track-color-strip",
+                        ) as HTMLElement | null
+                      )?.focus();
+                    }
+                  }}
                 >
-                  {TRACK_COLORS.map((c) => (
+                  {trackPalette().map((c, ci) => (
                     <button
                       key={c}
                       type="button"
-                      className="color-swatch"
+                      className={`color-swatch${t.color === c ? " selected" : ""}`}
                       style={{ background: c }}
-                      title={c}
+                      title={TRACK_COLOR_NAMES[ci]}
+                      aria-label={TRACK_COLOR_NAMES[ci]}
+                      aria-pressed={t.color === c}
                       onClick={() => {
                         api.setTrackColor(t.id, c);
                         setPickerFor(null);
@@ -168,7 +206,9 @@ export function TrackHeaders({
                   aria-label="Mute"
                   aria-pressed={t.muted}
                 >
-                  <IconMute size={15} />
+                  <span className="ts-letter" aria-hidden="true">
+                    M
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -178,7 +218,9 @@ export function TrackHeaders({
                   aria-label="Solo"
                   aria-pressed={t.soloed}
                 >
-                  <IconSolo size={15} />
+                  <span className="ts-letter" aria-hidden="true">
+                    S
+                  </span>
                 </button>
               </div>
               {!isCollapsed && (
@@ -194,12 +236,15 @@ export function TrackHeaders({
                         api.setTrackGain(t.id, Number(e.target.value))
                       }
                       aria-label={`${t.name} gain`}
-                      title={`${t.gain_db.toFixed(1)} dB`}
+                      aria-valuetext={fmtGainDb(t.gain_db)}
                     />
                     <span className="track-gain-val">
-                      {t.gain_db.toFixed(0)} dB
+                      {fmtGainDb(t.gain_db)}
                     </span>
                   </div>
+                  {armed && inputLevels.length > 0 && (
+                    <MiniMeter levels={inputLevels} />
+                  )}
                   <div className="track-meta" title={trackDetail(t, project)}>
                     {trackDetail(t, project)}
                   </div>
@@ -245,13 +290,23 @@ function TrackName({
       />
     );
   }
+  const startEdit = () => {
+    setDraft(name);
+    setEditing(true);
+  };
   return (
     <span
       className="track-name"
-      title={`${name} — double-click to rename`}
-      onDoubleClick={() => {
-        setDraft(name);
-        setEditing(true);
+      role="button"
+      tabIndex={0}
+      title={`${name} — double-click or press Enter to rename`}
+      aria-label={`${name} — press Enter to rename`}
+      onDoubleClick={startEdit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === "F2") {
+          e.preventDefault();
+          startEdit();
+        }
       }}
     >
       {name}
