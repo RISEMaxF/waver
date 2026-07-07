@@ -2,46 +2,46 @@ import { useEffect, useRef, useState } from "react";
 import type { ChannelLevel } from "../audio/types";
 import { IconMic, IconRefresh } from "./icons";
 
-/** Time-based meter ballistics, animated by rAF so the display is snappy and smooth
- *  regardless of how fast level updates actually arrive over IPC (review of the
- *  "sluggish meter" report: per-update decay stalls when updates are sparse).
- *  Attack is instant; release is dB-per-SECOND. Returns live dB values per channel. */
-export function useMeterBallistics(
+/** Time-based meter ballistics with DIRECT DOM writes: instant attack, dB-per-second
+ *  release, driven by a plain interval (WKWebView throttles/suspends rAF, which made
+ *  the previous rAF+setState approach lag seconds behind the data) and applied via
+ *  `apply(dbs)` so React renders are not in the hot path at all. */
+export function useMeterAnimation(
   levels: ChannelLevel[],
-  releaseDbPerSec = 90,
+  apply: (dbs: number[]) => void,
+  releaseDbPerSec = 120,
   floor = -60,
-): number[] {
-  const disp = useRef<number[]>([]);
+) {
   const latest = useRef<number[]>([]);
-  const [, frame] = useState(0);
   latest.current = levels.map((l) => l.peak_dbfs);
+  const applyRef = useRef(apply);
+  applyRef.current = apply;
   useEffect(() => {
-    let raf = 0;
+    const disp: number[] = [];
     let last = performance.now();
-    let alive = true;
-    const loop = (now: number) => {
-      if (!alive) return;
+    const step = () => {
+      const now = performance.now();
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       const tgt = latest.current;
-      const d = disp.current;
-      let changed = false;
-      for (let i = 0; i < Math.max(tgt.length, d.length); i++) {
-        const cur = d[i] ?? floor;
-        const next = Math.max(tgt[i] ?? floor, cur - releaseDbPerSec * dt);
-        if (Math.abs(next - cur) > 0.01) changed = true;
-        d[i] = next;
+      const n = Math.max(tgt.length, disp.length);
+      for (let i = 0; i < n; i++) {
+        disp[i] = Math.max(
+          tgt[i] ?? floor,
+          (disp[i] ?? floor) - releaseDbPerSec * dt,
+        );
       }
-      if (changed) frame((n) => n + 1);
-      raf = requestAnimationFrame(loop);
+      applyRef.current(disp);
     };
-    raf = requestAnimationFrame(loop);
-    return () => {
-      alive = false;
-      cancelAnimationFrame(raf);
-    };
+    const id = window.setInterval(step, 33);
+    return () => clearInterval(id);
   }, [releaseDbPerSec, floor]);
-  return levels.map((_, i) => disp.current[i] ?? floor);
+}
+
+/** Map dBFS onto the 0..100% meter span. */
+export function meterPct(dbfs: number, floor = -60): number {
+  const clamped = Math.max(floor, Math.min(0, dbfs));
+  return ((clamped - floor) / -floor) * 100;
 }
 
 // Meter display range. Below MIN_DBFS reads as silence.
@@ -66,9 +66,16 @@ export function Meter({
   channels: ChannelLevel[];
   compact?: boolean;
 }) {
-  // Ballistics: peak with instant attack + time-based release, animated by rAF
-  // (see useMeterBallistics); slow peak-hold tick; self-expiring clip latch.
-  const barDb = useMeterBallistics(channels);
+  // Ballistics: peak, instant attack + time-based release, written straight to the
+  // fill elements (see useMeterAnimation); slow peak-hold tick; clip latch expires.
+  const fillRefs = useRef<(HTMLDivElement | null)[]>([]);
+  useMeterAnimation(channels, (dbs) => {
+    dbs.forEach((db, i) => {
+      const el = fillRefs.current[i];
+      if (el)
+        el.style[compact ? "width" : "height"] = `${meterPct(db)}%`;
+    });
+  });
   const holds = useRef<number[]>([]);
   const clipAt = useRef<number[]>([]);
   const [, bump] = useState(0);
@@ -124,7 +131,6 @@ export function Meter({
       <div className={compact ? "meter-col" : undefined}>
         <div className="meter-bars">
           {channels.map((level, i) => {
-            const rmsPct = normalize(barDb[i] ?? level.peak_dbfs);
             const peakPct = normalize(level.peak_dbfs);
             const holdPct = normalize(holds.current[i] ?? MIN_DBFS);
             const isClipped =
@@ -142,7 +148,10 @@ export function Meter({
                   )}
                   <div
                     className="meter-rms"
-                    style={sizeStyle(compact, rmsPct)}
+                    ref={(el) => {
+                      fillRefs.current[i] = el;
+                    }}
+                    style={sizeStyle(compact, 0)}
                   />
                   <div
                     className="meter-peak"

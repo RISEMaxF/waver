@@ -3,7 +3,7 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import type { ProjectApi } from "../../audio/useProject";
 import type { ProjectView } from "../../audio/project";
 import type { ChannelLevel } from "../../audio/types";
-import { useMeterBallistics } from "../Meter";
+import { meterPct, useMeterAnimation } from "../Meter";
 import { ContextMenu, type MenuState } from "./ContextMenu";
 import {
   IconChevronDown,
@@ -35,19 +35,18 @@ interface Props {
 /** Tiny horizontal level bar in the armed track's header: signal + clip feedback in
  *  the user's line of sight during capture (W-12 / FR-2.3). */
 function MiniMeter({ levels }: { levels: ChannelLevel[] }) {
-  const dbs = useMeterBallistics(levels);
+  const fill = useRef<HTMLDivElement | null>(null);
+  useMeterAnimation(levels, (dbs) => {
+    const peak = dbs.reduce((m, v) => Math.max(m, v), -60);
+    if (fill.current) fill.current.style.width = `${meterPct(peak)}%`;
+  });
   const rawPeak = levels.reduce((m, l) => Math.max(m, l.peak_dbfs), -60);
-  const peak = dbs.reduce((m, v) => Math.max(m, v), -60);
-  const pct = ((Math.max(-60, Math.min(0, peak)) + 60) / 60) * 100;
   return (
-    <div
-      className="track-mini-meter"
-      role="img"
-      aria-label={`Input level ${peak <= -60 ? "silent" : `${Math.round(peak)} dB`}`}
-    >
+    <div className="track-mini-meter" role="img" aria-label="Input level">
       <div
+        ref={fill}
         className={`track-mini-fill${rawPeak >= -0.1 ? " clip" : ""}`}
-        style={{ width: `${pct}%` }}
+        style={{ width: "0%" }}
       />
     </div>
   );

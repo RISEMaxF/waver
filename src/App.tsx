@@ -122,10 +122,33 @@ function TooltipLayer() {
     };
   }, []);
   if (!tip) return null;
-  const x = Math.min(Math.max(tip.x, 12), window.innerWidth - 12);
-  const y = Math.min(tip.y, window.innerHeight - 40);
+  return <TooltipBubble key={`${tip.x}:${tip.y}:${tip.text}`} tip={tip} />;
+}
+
+/** Positions the bubble fully inside the viewport after measuring it (a centered
+ *  transform alone let wide tooltips run off the window edges). */
+function TooltipBubble({ tip }: { tip: { text: string; x: number; y: number } }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    let left = tip.x - r.width / 2;
+    left = Math.min(Math.max(8, left), window.innerWidth - r.width - 8);
+    let top = tip.y;
+    if (top + r.height > window.innerHeight - 8)
+      top = Math.max(8, tip.y - r.height - 24); // flip above the control
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+    el.style.visibility = "visible";
+  }, [tip]);
   return (
-    <div className="app-tooltip" style={{ left: x, top: y }} role="tooltip">
+    <div
+      className="app-tooltip"
+      ref={ref}
+      style={{ left: 0, top: 0, visibility: "hidden", transform: "none" }}
+      role="tooltip"
+    >
       {tip.text}
     </div>
   );
