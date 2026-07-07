@@ -33,11 +33,19 @@ allow = [
     "Unlicense",
     "0BSD",
 ]
-# Strong copyleft (GPL/LGPL/AGPL) is intentionally NOT allowed by default. MP3
-# export via LAME (LGPL) is an optional off-by-default feature (spec §9); if that
-# feature is enabled, add an exception here for `mp3lame-encoder` rather than
-# broadening the global allow-list.
+# Strong copyleft (GPL/LGPL/AGPL) is intentionally NOT allowed by default. The
+# ONE sanctioned exception, per spec §9: MP3 export links LAME, so the two LAME
+# crates are allowed LGPL-3.0 individually rather than broadening the global
+# allow-list. Everything else stays permissive-only.
 confidence-threshold = 0.9
+
+[[licenses.exceptions]]
+name = "mp3lame-encoder"
+allow = ["LGPL-3.0"]
+
+[[licenses.exceptions]]
+name = "mp3lame-sys"
+allow = ["LGPL-3.0"]
 
 [bans]
 # Warn on duplicate versions of the same crate; deny wildcard version requirements.

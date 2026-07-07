@@ -173,9 +173,13 @@ Design principles:
 
 ## License
 
-Dual-licensed under either of
+Waver itself is dual-licensed under either of
 
 - Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
 - MIT license ([LICENSE-MIT](LICENSE-MIT))
 
 at your option.
+
+MP3 export links [LAME](https://lame.sourceforge.io) through the `mp3lame-sys`
+crate, which is LGPL-3.0; all other dependencies are under permissive licenses
+(audited with `cargo-deny`).
