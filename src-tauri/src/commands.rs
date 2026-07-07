@@ -662,6 +662,20 @@ pub fn delete_range(
     apply_edit(&state, |p| p.delete_range(start, end, ripple).map(|_| ()))
 }
 
+/// Move several clips by one delta (group drag) - a single undoable edit.
+#[tauri::command]
+pub fn move_clips(
+    state: State<'_, AudioState>,
+    clip_ids: Vec<String>,
+    delta: i64,
+) -> Result<ProjectView, String> {
+    let ids: Vec<_> = clip_ids
+        .iter()
+        .map(|s| parse_id(s))
+        .collect::<Result<_, _>>()?;
+    apply_edit(&state, |p| p.move_clips(&ids, delta))
+}
+
 /// Markers (labels): add / move / rename / delete - all single undoable edits.
 #[tauri::command]
 pub fn add_marker(

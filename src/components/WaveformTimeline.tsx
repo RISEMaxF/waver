@@ -748,6 +748,24 @@ export function WaveformTimeline({
       ctx.globalAlpha = 1;
     }
 
+    // Group-drag preview: the time delta the grabbed clip is currently displaced by.
+    let groupDeltaSec = 0;
+    const dnow = drag.current;
+    if (
+      project &&
+      dnow &&
+      dnow.kind === "move" &&
+      multiSel.size > 1 &&
+      multiSel.has(dnow.clipId)
+    ) {
+      const grabbed = findClip(project, dnow.clipId);
+      if (grabbed) {
+        groupDeltaSec =
+          snapSec(xToSec(mouse.current.x) - dnow.grabSec, step) -
+          grabbed.timeline_start / sr;
+      }
+    }
+
     tracks.forEach((track, ti) => {
       const laneTop = tops[ti] + 4;
       const laneH = laneHeightOf(ti) - 8;
@@ -759,7 +777,12 @@ export function WaveformTimeline({
         let ghost = false;
         if (d && d.kind === "move" && d.clipId === clip.id) {
           startSec = snapSec(xToSec(mouse.current.x) - d.grabSec, step);
-          drawTop = laneTopAt(mouse.current.y) ?? laneTop;
+          // Group drags stay on their own lanes; solo drags follow the pointer.
+          if (multiSel.size <= 1 || !multiSel.has(clip.id))
+            drawTop = laneTopAt(mouse.current.y) ?? laneTop;
+          ghost = true;
+        } else if (groupDeltaSec !== 0 && multiSel.has(clip.id)) {
+          startSec = Math.max(0, startSec + groupDeltaSec);
           ghost = true;
         }
         let lenSec = clipLen(clip) / sr;
@@ -1182,6 +1205,8 @@ export function WaveformTimeline({
   const onRulerMove = (e: React.MouseEvent) => {
     const d = rulerDrag.current;
     if (!d) return;
+    // Hold Ctrl (or Alt) to bypass the magnetism while dragging on the ruler.
+    altBypass.current = e.altKey || e.ctrlKey;
     if (d.mode === "pending") {
       const dx = Math.abs(e.clientX - d.startX);
       const dy = Math.abs(e.clientY - d.startY);
@@ -1201,16 +1226,19 @@ export function WaveformTimeline({
       const x = e.clientX - rect.left;
       setScrollSec(Math.max(0, d.anchorSec - x / np));
     } else if (d.mode === "marker" && d.markerId) {
-      setMarkerDrag({ id: d.markerId, sec: snapToGrid(rulerRawSec(e)) });
+      setMarkerDrag({ id: d.markerId, sec: snapSec(rulerRawSec(e), gridStep()) });
     } else if (d.mode === "loop-move" && range) {
       const len = range.end - range.start;
-      const start = Math.max(0, snapToGrid(rulerRawSec(e) - d.grabOffset));
+      const start = Math.max(
+        0,
+        snapSec(rulerRawSec(e) - d.grabOffset, gridStep()),
+      );
       setRange({ start, end: start + len });
     } else if (d.mode === "loop-start" && range) {
-      const v = snapToGrid(rulerRawSec(e));
+      const v = snapSec(rulerRawSec(e), gridStep());
       if (v < range.end) setRange({ start: Math.max(0, v), end: range.end });
     } else if (d.mode === "loop-end" && range) {
-      const v = snapToGrid(rulerRawSec(e));
+      const v = snapSec(rulerRawSec(e), gridStep());
       if (v > range.start) setRange({ start: range.start, end: v });
     }
   };
@@ -1253,7 +1281,9 @@ export function WaveformTimeline({
         return;
       }
       setSelected(id);
-      setMultiSel(new Set());
+      // Dragging a member of the multi-selection moves the whole group - only a
+      // click on an unselected clip collapses the selection to that clip.
+      if (!multiSel.has(id)) setMultiSel(new Set());
       if (hit.zone === "trim-start")
         drag.current = { kind: "trim-start", clipId: id };
       else if (hit.zone === "trim-end")
@@ -3149,7 +3179,7 @@ function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
         ["Space", "Play / pause (stops a rolling take)"],
         ["Drag empty lane", "Select a time range (snaps to clip edges)"],
         ["Double-click clip", "Select exactly the clip's range"],
-        ["Shift-click clips", "Multi-select (⌘J merges them)"],
+        ["Shift-click clips", "Multi-select (drag moves all, ⌘J merges)"],
         ["M", "Add a marker at the playhead"],
         ["Shift + R", "Start / stop recording"],
         ["Esc", "Stop playback · clear selection"],

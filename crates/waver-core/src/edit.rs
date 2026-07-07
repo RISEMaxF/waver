@@ -185,6 +185,44 @@ impl Project {
         Ok(())
     }
 
+    /// Move several clips by the same signed frame delta as ONE edit (group drag).
+    /// The delta is clamped so the earliest clip cannot go below zero; overlap
+    /// safety is enforced by the caller's validate() at commit time.
+    pub fn move_clips(&mut self, ids: &[Uuid], delta: i64) -> Result<(), EditError> {
+        let mut min_start = u64::MAX;
+        for t in &self.tracks {
+            for c in &t.clips {
+                if ids.contains(&c.id) {
+                    min_start = min_start.min(c.timeline_start);
+                }
+            }
+        }
+        if min_start == u64::MAX {
+            return Err(EditError::Invalid("no clips to move".into()));
+        }
+        let delta = if delta < 0 {
+            -(((-delta) as u64).min(min_start) as i64)
+        } else {
+            delta
+        };
+        if delta == 0 {
+            return Ok(());
+        }
+        for t in &mut self.tracks {
+            let mut touched = false;
+            for c in &mut t.clips {
+                if ids.contains(&c.id) {
+                    c.timeline_start = (c.timeline_start as i64 + delta) as u64;
+                    touched = true;
+                }
+            }
+            if touched {
+                t.clips.sort_by_key(|c| c.timeline_start);
+            }
+        }
+        Ok(())
+    }
+
     /// Delete several clips as ONE edit (one undo step; multi-select delete).
     /// Unknown ids are ignored so a stale selection can't fail the whole batch.
     pub fn delete_clips(&mut self, ids: &[Uuid]) -> Result<usize, EditError> {

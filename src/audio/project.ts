@@ -69,6 +69,8 @@ export const renameMarker = (markerId: string, name: string) =>
   invoke<ProjectView>("rename_marker", { markerId, name });
 export const deleteMarker = (markerId: string) =>
   invoke<ProjectView>("delete_marker", { markerId });
+export const moveClips = (clipIds: string[], delta: number) =>
+  invoke<ProjectView>("move_clips", { clipIds, delta });
 export const deleteClips = (clipIds: string[]) =>
   invoke<ProjectView>("delete_clips", { clipIds });
 export const mergeClips = (clipIds: string[]) =>

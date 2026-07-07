@@ -59,6 +59,8 @@ export function useProject() {
     deleteRange: (start: number, end: number, ripple: boolean) =>
       run(api.deleteRange(start, end, ripple)),
     deleteClips: (ids: string[]) => run(api.deleteClips(ids)),
+    moveClips: (ids: string[], delta: number) =>
+      run(api.moveClips(ids, delta)),
     addMarker: (frame: number, name: string) => run(api.addMarker(frame, name)),
     moveMarker: (id: string, frame: number) => run(api.moveMarker(id, frame)),
     renameMarker: (id: string, name: string) =>

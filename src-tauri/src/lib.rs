@@ -70,6 +70,7 @@ pub fn run() {
             commands::playback_levels,
             commands::delete_range,
             commands::delete_clips,
+            commands::move_clips,
             commands::add_marker,
             commands::move_marker,
             commands::rename_marker,
