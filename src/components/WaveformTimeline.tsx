@@ -222,13 +222,27 @@ export function WaveformTimeline({
     return w >= 150 && w <= 340 ? w : 190;
   });
   const gutterDrag = useRef<{ x: number; w: number } | null>(null);
+  const resetGutter = useCallback(() => {
+    setGutterW(190);
+    localStorage.removeItem("waver-gutter-w");
+  }, []);
+  // Global layout reset: this component owns the gutter + track fold state; other
+  // panels (media drawer) listen for the same event and reset themselves.
+  const resetLayout = useCallback(() => {
+    resetGutter();
+    setCollapsed(new Set());
+    window.dispatchEvent(new CustomEvent("waver:reset-layout"));
+  }, [resetGutter]);
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!gutterDrag.current) return;
       setGutterW(
         Math.min(
           340,
-          Math.max(150, gutterDrag.current.w + (e.clientX - gutterDrag.current.x)),
+          Math.max(
+            150,
+            gutterDrag.current.w + (e.clientX - gutterDrag.current.x),
+          ),
         ),
       );
     };
@@ -1573,8 +1587,7 @@ export function WaveformTimeline({
     // Re-page when the head crosses the right edge or falls off the left.
     if (head > scrollSec + viewSec * 0.92)
       setScrollSec(Math.max(0, head - viewSec * 0.15));
-    else if (head < scrollSec)
-      setScrollSec(Math.max(0, head - viewSec * 0.15));
+    else if (head < scrollSec) setScrollSec(Math.max(0, head - viewSec * 0.15));
   }, [
     followPlayhead,
     playing,
@@ -1815,7 +1828,11 @@ export function WaveformTimeline({
         x: e.clientX,
         y: e.clientY,
         items: [
-          { label: "Split at playhead", shortcut: "S", onClick: splitAtPlayhead },
+          {
+            label: "Split at playhead",
+            shortcut: "S",
+            onClick: splitAtPlayhead,
+          },
           { label: "Duplicate", shortcut: "⌘D", onClick: duplicateSel },
           "sep",
           { label: "Cut", shortcut: "⌘X", onClick: cutSel },
@@ -1943,88 +1960,88 @@ export function WaveformTimeline({
     <div className="waveform">
       <div className="wave-toolbar" ref={toolbarRef}>
         <div className="tb-sticky">
-        <div className="transport-group">
-          <button
-            type="button"
-            className="transport play"
-            disabled={!outputId || !project || project.tracks.length === 0}
-            onClick={playing ? togglePause : startPlay}
-            title={playing ? "Pause / resume (space)" : "Play (space)"}
-            aria-label={playing && !paused ? "Pause" : "Play"}
-          >
-            {playing && !paused ? (
-              <IconPause size={18} />
+          <div className="transport-group">
+            <button
+              type="button"
+              className="transport play"
+              disabled={!outputId || !project || project.tracks.length === 0}
+              onClick={playing ? togglePause : startPlay}
+              title={playing ? "Pause / resume (space)" : "Play (space)"}
+              aria-label={playing && !paused ? "Pause" : "Play"}
+            >
+              {playing && !paused ? (
+                <IconPause size={18} />
+              ) : (
+                <IconPlay size={18} />
+              )}
+            </button>
+            <button
+              type="button"
+              className="transport stop"
+              disabled={!playing}
+              onClick={stopPlay}
+              title="Stop"
+              aria-label="Stop"
+            >
+              <IconStop size={16} />
+            </button>
+            <button
+              type="button"
+              className={`transport rec${recording ? " recording" : ""}`}
+              disabled={!canRecord}
+              onClick={onToggleRecord}
+              title={
+                recording
+                  ? "Stop recording (Space or Shift+R)"
+                  : effArmedId
+                    ? "Record (Shift+R)"
+                    : `Record (Shift+R) - nothing armed, take appends to ${project?.tracks[0]?.name ?? "a new track"}`
+              }
+              aria-label={
+                recording
+                  ? `Stop recording, elapsed ${fmtTimecode(recElapsed)}`
+                  : "Start recording"
+              }
+              aria-pressed={recording}
+            >
+              <span
+                className={recording ? "rec-square" : "rec-dot"}
+                aria-hidden="true"
+              />
+            </button>
+            <button
+              type="button"
+              className="transport skip"
+              onClick={() => seek(0)}
+              title="Go to start (Home)"
+              aria-label="Go to start"
+            >
+              <IconSkipStart size={14} />
+            </button>
+            <button
+              type="button"
+              className="transport skip"
+              onClick={() => seek(Math.round(contentEndSec() * sr))}
+              title="Go to end (End)"
+              aria-label="Go to end"
+            >
+              <IconSkipEnd size={14} />
+            </button>
+          </div>
+          <div className="wave-timecode">
+            {recording ? (
+              <span className="tc-rec" role="timer">
+                {fmtTimecode(recElapsed)}
+              </span>
             ) : (
-              <IconPlay size={18} />
+              <span className="tc-time">{fmtTimecode(playheadSec)}</span>
             )}
-          </button>
-          <button
-            type="button"
-            className="transport stop"
-            disabled={!playing}
-            onClick={stopPlay}
-            title="Stop"
-            aria-label="Stop"
-          >
-            <IconStop size={16} />
-          </button>
-          <button
-            type="button"
-            className={`transport rec${recording ? " recording" : ""}`}
-            disabled={!canRecord}
-            onClick={onToggleRecord}
-            title={
-              recording
-                ? "Stop recording (Space or Shift+R)"
-                : effArmedId
-                  ? "Record (Shift+R)"
-                  : `Record (Shift+R) - nothing armed, take appends to ${project?.tracks[0]?.name ?? "a new track"}`
-            }
-            aria-label={
-              recording
-                ? `Stop recording, elapsed ${fmtTimecode(recElapsed)}`
-                : "Start recording"
-            }
-            aria-pressed={recording}
-          >
-            <span
-              className={recording ? "rec-square" : "rec-dot"}
-              aria-hidden="true"
-            />
-          </button>
-          <button
-            type="button"
-            className="transport skip"
-            onClick={() => seek(0)}
-            title="Go to start (Home)"
-            aria-label="Go to start"
-          >
-            <IconSkipStart size={14} />
-          </button>
-          <button
-            type="button"
-            className="transport skip"
-            onClick={() => seek(Math.round(contentEndSec() * sr))}
-            title="Go to end (End)"
-            aria-label="Go to end"
-          >
-            <IconSkipEnd size={14} />
-          </button>
-        </div>
-        <div className="wave-timecode">
-          {recording ? (
-            <span className="tc-rec" role="timer">
-              {fmtTimecode(recElapsed)}
-            </span>
-          ) : (
-            <span className="tc-time">{fmtTimecode(playheadSec)}</span>
-          )}
-          {beatGrid && (
-            <span className="tc-beats">
-              {barsBeats(playheadSec, bpm, stepSec)}
-            </span>
-          )}
-        </div>
+            {beatGrid && (
+              <span className="tc-beats">
+                {barsBeats(playheadSec, bpm, stepSec)}
+              </span>
+            )}
+          </div>
         </div>
         <MasterMeter playing={playing && !paused} />
         <div className="speed-controls" title="Playback speed">
@@ -2088,125 +2105,127 @@ export function WaveformTimeline({
           <IconZoomOut />
         </button>
         {tbWide && (
-        <button
-          type="button"
-          className="tbtn icon-only"
-          onClick={fitToWindow}
-          title="Fit project to window (F)"
-          aria-label="Fit to window"
-        >
-          <IconFit />
-        </button>
-        )}
-        {tbWide && (
-        <>
-        <button
-          type="button"
-          className="tbtn icon-only"
-          disabled={!selected}
-          onClick={zoomToSelection}
-          title="Zoom to selection (E)"
-          aria-label="Zoom to selection"
-        >
-          <IconZoomSel />
-        </button>
-        <button
-          type="button"
-          className="tbtn icon-only"
-          onClick={foldAll}
-          title="Fold / unfold all tracks (T)"
-          aria-label="Fold all tracks"
-        >
-          <IconFoldAll />
-        </button>
-        <button
-          type="button"
-          className={`tbtn icon-only${snapEnabled ? " active" : ""}`}
-          onClick={() => setSnapEnabled((s) => !s)}
-          title="Snap to grid (N) - hold Alt while dragging to bypass"
-          aria-label="Snap to grid"
-          aria-pressed={snapEnabled}
-        >
-          <IconMagnet />
-        </button>
-        <button
-          type="button"
-          className={`tbtn icon-only${followPlayhead ? " active" : ""}`}
-          onClick={() => setFollowPlayhead((s) => !s)}
-          title="Follow playhead during playback"
-          aria-label="Follow playhead"
-          aria-pressed={followPlayhead}
-        >
-          <IconFollow />
-        </button>
-        <button
-          type="button"
-          className={`tbtn icon-only${loopOn && range ? " active" : ""}`}
-          disabled={!range && !loopOn}
-          onClick={() => setLoopOn((l) => !l)}
-          title={
-            range
-              ? "Loop the selected range during playback"
-              : "Loop - drag across empty lane space to select a range first"
-          }
-          aria-label="Loop selection"
-          aria-pressed={loopOn}
-        >
-          <IconLoop />
-        </button>
-        <button
-          type="button"
-          className={`tbtn icon-only${zeroCross ? " active" : ""}`}
-          onClick={() => setZeroCross((z) => !z)}
-          title="Snap splits & trims to zero crossings (click-free cuts)"
-          aria-label="Snap to zero crossings"
-          aria-pressed={zeroCross}
-        >
-          <IconZeroCross />
-        </button>
-        <div
-          className="grid-controls"
-          title="Beat grid - playhead & edits snap to it"
-        >
           <button
             type="button"
-            className={`tbtn${beatGrid ? " active" : ""}`}
-            onClick={() => setBeatGrid((g) => !g)}
-            aria-pressed={beatGrid}
+            className="tbtn icon-only"
+            onClick={fitToWindow}
+            title="Fit project to window (F)"
+            aria-label="Fit to window"
           >
-            <IconGrid />
-            <span>Grid</span>
+            <IconFit />
           </button>
-          <input
-            type="number"
-            className="grid-bpm"
-            min={20}
-            max={300}
-            value={bpm}
-            disabled={!beatGrid}
-            onChange={(e) =>
-              setBpm(Math.min(300, Math.max(20, Number(e.target.value) || 120)))
-            }
-            title="Tempo (BPM)"
-            aria-label="Tempo in BPM"
-          />
-          <span className="grid-unit">BPM</span>
-          <select
-            className="grid-div"
-            value={gridDiv}
-            disabled={!beatGrid}
-            onChange={(e) => setGridDiv(Number(e.target.value))}
-            title="Grid resolution (steps per beat)"
-            aria-label="Grid resolution"
-          >
-            <option value={1}>1/4</option>
-            <option value={2}>1/8</option>
-            <option value={3}>1/8T</option>
-            <option value={4}>1/16</option>
-            <option value={8}>1/32</option>
-          </select>
-        </div>
-        </>
+        )}
+        {tbWide && (
+          <>
+            <button
+              type="button"
+              className="tbtn icon-only"
+              disabled={!selected}
+              onClick={zoomToSelection}
+              title="Zoom to selection (E)"
+              aria-label="Zoom to selection"
+            >
+              <IconZoomSel />
+            </button>
+            <button
+              type="button"
+              className="tbtn icon-only"
+              onClick={foldAll}
+              title="Fold / unfold all tracks (T)"
+              aria-label="Fold all tracks"
+            >
+              <IconFoldAll />
+            </button>
+            <button
+              type="button"
+              className={`tbtn icon-only${snapEnabled ? " active" : ""}`}
+              onClick={() => setSnapEnabled((s) => !s)}
+              title="Snap to grid (N) - hold Alt while dragging to bypass"
+              aria-label="Snap to grid"
+              aria-pressed={snapEnabled}
+            >
+              <IconMagnet />
+            </button>
+            <button
+              type="button"
+              className={`tbtn icon-only${followPlayhead ? " active" : ""}`}
+              onClick={() => setFollowPlayhead((s) => !s)}
+              title="Follow playhead during playback"
+              aria-label="Follow playhead"
+              aria-pressed={followPlayhead}
+            >
+              <IconFollow />
+            </button>
+            <button
+              type="button"
+              className={`tbtn icon-only${loopOn && range ? " active" : ""}`}
+              disabled={!range && !loopOn}
+              onClick={() => setLoopOn((l) => !l)}
+              title={
+                range
+                  ? "Loop the selected range during playback"
+                  : "Loop - drag across empty lane space to select a range first"
+              }
+              aria-label="Loop selection"
+              aria-pressed={loopOn}
+            >
+              <IconLoop />
+            </button>
+            <button
+              type="button"
+              className={`tbtn icon-only${zeroCross ? " active" : ""}`}
+              onClick={() => setZeroCross((z) => !z)}
+              title="Snap splits & trims to zero crossings (click-free cuts)"
+              aria-label="Snap to zero crossings"
+              aria-pressed={zeroCross}
+            >
+              <IconZeroCross />
+            </button>
+            <div
+              className="grid-controls"
+              title="Beat grid - playhead & edits snap to it"
+            >
+              <button
+                type="button"
+                className={`tbtn${beatGrid ? " active" : ""}`}
+                onClick={() => setBeatGrid((g) => !g)}
+                aria-pressed={beatGrid}
+              >
+                <IconGrid />
+                <span>Grid</span>
+              </button>
+              <input
+                type="number"
+                className="grid-bpm"
+                min={20}
+                max={300}
+                value={bpm}
+                disabled={!beatGrid}
+                onChange={(e) =>
+                  setBpm(
+                    Math.min(300, Math.max(20, Number(e.target.value) || 120)),
+                  )
+                }
+                title="Tempo (BPM)"
+                aria-label="Tempo in BPM"
+              />
+              <span className="grid-unit">BPM</span>
+              <select
+                className="grid-div"
+                value={gridDiv}
+                disabled={!beatGrid}
+                onChange={(e) => setGridDiv(Number(e.target.value))}
+                title="Grid resolution (steps per beat)"
+                aria-label="Grid resolution"
+              >
+                <option value={1}>1/4</option>
+                <option value={2}>1/8</option>
+                <option value={3}>1/8T</option>
+                <option value={4}>1/16</option>
+                <option value={8}>1/32</option>
+              </select>
+            </div>
+          </>
         )}
         <span className="tb-sep" />
         {!tbWide && (
@@ -2215,20 +2234,65 @@ export function WaveformTimeline({
               type="button"
               className="tbtn"
               onClick={(e) => {
-                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                const r = (
+                  e.currentTarget as HTMLElement
+                ).getBoundingClientRect();
                 setCtxMenu({
                   x: r.left,
                   y: r.bottom + 4,
                   items: [
-                    { label: "Split at playhead", shortcut: "S", disabled: !selected, onClick: splitAtPlayhead },
-                    { label: "Duplicate", shortcut: "⌘D", disabled: !selected, onClick: duplicateSel },
-                    { label: "Cut", shortcut: "⌘X", disabled: !selected, onClick: cutSel },
-                    { label: "Copy", shortcut: "⌘C", disabled: !selected, onClick: copySel },
-                    { label: "Paste", shortcut: "⌘V", disabled: !hasClipboard, onClick: pasteAtPlayhead },
-                    { label: "Split into mono channels", disabled: !selected, onClick: () => selected && api.splitChannels(selected) },
+                    {
+                      label: "Split at playhead",
+                      shortcut: "S",
+                      disabled: !selected,
+                      onClick: splitAtPlayhead,
+                    },
+                    {
+                      label: "Duplicate",
+                      shortcut: "⌘D",
+                      disabled: !selected,
+                      onClick: duplicateSel,
+                    },
+                    {
+                      label: "Cut",
+                      shortcut: "⌘X",
+                      disabled: !selected,
+                      onClick: cutSel,
+                    },
+                    {
+                      label: "Copy",
+                      shortcut: "⌘C",
+                      disabled: !selected,
+                      onClick: copySel,
+                    },
+                    {
+                      label: "Paste",
+                      shortcut: "⌘V",
+                      disabled: !hasClipboard,
+                      onClick: pasteAtPlayhead,
+                    },
+                    {
+                      label: "Split into mono channels",
+                      disabled: !selected,
+                      onClick: () => selected && api.splitChannels(selected),
+                    },
                     "sep",
-                    { label: `${ripple ? "✓ " : ""}Ripple delete`, onClick: () => setRipple((r) => !r) },
-                    { label: "Delete clip", shortcut: "⌫", danger: true, disabled: !selected, onClick: () => { if (selected) { api.del(selected, ripple); setSelected(null); } } },
+                    {
+                      label: `${ripple ? "✓ " : ""}Ripple delete`,
+                      onClick: () => setRipple((r) => !r),
+                    },
+                    {
+                      label: "Delete clip",
+                      shortcut: "⌫",
+                      danger: true,
+                      disabled: !selected,
+                      onClick: () => {
+                        if (selected) {
+                          api.del(selected, ripple);
+                          setSelected(null);
+                        }
+                      },
+                    },
                   ],
                 });
               }}
@@ -2242,20 +2306,52 @@ export function WaveformTimeline({
               type="button"
               className="tbtn"
               onClick={(e) => {
-                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                const r = (
+                  e.currentTarget as HTMLElement
+                ).getBoundingClientRect();
                 setCtxMenu({
                   x: r.left,
                   y: r.bottom + 4,
                   items: [
-                    { label: "Fit project", shortcut: "F", onClick: fitToWindow },
-                    { label: "Zoom to selection", shortcut: "E", disabled: !selected && !range, onClick: zoomToSelection },
-                    { label: "Fold / unfold all tracks", shortcut: "T", onClick: foldAll },
+                    {
+                      label: "Fit project",
+                      shortcut: "F",
+                      onClick: fitToWindow,
+                    },
+                    {
+                      label: "Zoom to selection",
+                      shortcut: "E",
+                      disabled: !selected && !range,
+                      onClick: zoomToSelection,
+                    },
+                    {
+                      label: "Fold / unfold all tracks",
+                      shortcut: "T",
+                      onClick: foldAll,
+                    },
                     "sep",
-                    { label: `${snapEnabled ? "✓ " : ""}Snap`, shortcut: "N", onClick: () => setSnapEnabled((v) => !v) },
-                    { label: `${followPlayhead ? "✓ " : ""}Follow playhead`, onClick: () => setFollowPlayhead((v) => !v) },
-                    { label: `${loopOn ? "✓ " : ""}Loop range`, disabled: !range && !loopOn, onClick: () => setLoopOn((v) => !v) },
-                    { label: `${zeroCross ? "✓ " : ""}Zero-crossing snap`, onClick: () => setZeroCross((v) => !v) },
-                    { label: `${beatGrid ? "✓ " : ""}Beat grid`, onClick: () => setBeatGrid((v) => !v) },
+                    {
+                      label: `${snapEnabled ? "✓ " : ""}Snap`,
+                      shortcut: "N",
+                      onClick: () => setSnapEnabled((v) => !v),
+                    },
+                    {
+                      label: `${followPlayhead ? "✓ " : ""}Follow playhead`,
+                      onClick: () => setFollowPlayhead((v) => !v),
+                    },
+                    {
+                      label: `${loopOn ? "✓ " : ""}Loop range`,
+                      disabled: !range && !loopOn,
+                      onClick: () => setLoopOn((v) => !v),
+                    },
+                    {
+                      label: `${zeroCross ? "✓ " : ""}Zero-crossing snap`,
+                      onClick: () => setZeroCross((v) => !v),
+                    },
+                    {
+                      label: `${beatGrid ? "✓ " : ""}Beat grid`,
+                      onClick: () => setBeatGrid((v) => !v),
+                    },
                   ],
                 });
               }}
@@ -2268,94 +2364,94 @@ export function WaveformTimeline({
           </>
         )}
         {tbWide && (
-        <>
-        <button
-          type="button"
-          className="tbtn icon-only"
-          disabled={!selected}
-          onClick={splitAtPlayhead}
-          title="Split at playhead (S)"
-          aria-label="Split"
-        >
-          <IconSplit />
-        </button>
-        <button
-          type="button"
-          className="tbtn icon-only"
-          disabled={!selected}
-          onClick={duplicateSel}
-          title="Duplicate clip (⌘/Ctrl+D)"
-          aria-label="Duplicate"
-        >
-          <IconDuplicate />
-        </button>
-        <button
-          type="button"
-          className="tbtn icon-only"
-          disabled={!selected}
-          onClick={cutSel}
-          title="Cut clip (⌘/Ctrl+X)"
-          aria-label="Cut"
-        >
-          <IconCut />
-        </button>
-        <button
-          type="button"
-          className="tbtn icon-only"
-          disabled={!selected}
-          onClick={copySel}
-          title="Copy clip (⌘/Ctrl+C)"
-          aria-label="Copy"
-        >
-          <IconCopy />
-        </button>
-        <button
-          type="button"
-          className="tbtn icon-only"
-          disabled={!hasClipboard}
-          onClick={pasteAtPlayhead}
-          title="Paste at playhead on the armed track (⌘/Ctrl+V)"
-          aria-label="Paste"
-        >
-          <IconPaste />
-        </button>
-        <button
-          type="button"
-          className="tbtn icon-only"
-          disabled={!selected}
-          onClick={() => selected && api.splitChannels(selected)}
-          title="Split into mono channels"
-          aria-label="Channels"
-        >
-          <IconChannels />
-        </button>
-        <button
-          type="button"
-          className="tbtn danger icon-only"
-          disabled={!selected}
-          onClick={() => {
-            if (selected) {
-              api.del(selected, ripple);
-              setSelected(null);
-            }
-          }}
-          title="Delete clip"
-          aria-label="Delete"
-        >
-          <IconTrash />
-        </button>
-        <label
-          className="ripple-toggle"
-          title="Ripple: shift later clips left on delete"
-        >
-          <input
-            type="checkbox"
-            checked={ripple}
-            onChange={(e) => setRipple(e.target.checked)}
-          />
-          Ripple
-        </label>
-        </>
+          <>
+            <button
+              type="button"
+              className="tbtn icon-only"
+              disabled={!selected}
+              onClick={splitAtPlayhead}
+              title="Split at playhead (S)"
+              aria-label="Split"
+            >
+              <IconSplit />
+            </button>
+            <button
+              type="button"
+              className="tbtn icon-only"
+              disabled={!selected}
+              onClick={duplicateSel}
+              title="Duplicate clip (⌘/Ctrl+D)"
+              aria-label="Duplicate"
+            >
+              <IconDuplicate />
+            </button>
+            <button
+              type="button"
+              className="tbtn icon-only"
+              disabled={!selected}
+              onClick={cutSel}
+              title="Cut clip (⌘/Ctrl+X)"
+              aria-label="Cut"
+            >
+              <IconCut />
+            </button>
+            <button
+              type="button"
+              className="tbtn icon-only"
+              disabled={!selected}
+              onClick={copySel}
+              title="Copy clip (⌘/Ctrl+C)"
+              aria-label="Copy"
+            >
+              <IconCopy />
+            </button>
+            <button
+              type="button"
+              className="tbtn icon-only"
+              disabled={!hasClipboard}
+              onClick={pasteAtPlayhead}
+              title="Paste at playhead on the armed track (⌘/Ctrl+V)"
+              aria-label="Paste"
+            >
+              <IconPaste />
+            </button>
+            <button
+              type="button"
+              className="tbtn icon-only"
+              disabled={!selected}
+              onClick={() => selected && api.splitChannels(selected)}
+              title="Split into mono channels"
+              aria-label="Channels"
+            >
+              <IconChannels />
+            </button>
+            <button
+              type="button"
+              className="tbtn danger icon-only"
+              disabled={!selected}
+              onClick={() => {
+                if (selected) {
+                  api.del(selected, ripple);
+                  setSelected(null);
+                }
+              }}
+              title="Delete clip"
+              aria-label="Delete"
+            >
+              <IconTrash />
+            </button>
+            <label
+              className="ripple-toggle"
+              title="Ripple: shift later clips left on delete"
+            >
+              <input
+                type="checkbox"
+                checked={ripple}
+                onChange={(e) => setRipple(e.target.checked)}
+              />
+              Ripple
+            </label>
+          </>
         )}
         <span className="tb-sep" />
         <button
@@ -2396,6 +2492,8 @@ export function WaveformTimeline({
                   shortcut: "?",
                   onClick: () => setShowShortcuts(true),
                 },
+                "sep",
+                { label: "Reset layout", onClick: resetLayout },
               ],
             });
           }}
@@ -2425,6 +2523,8 @@ export function WaveformTimeline({
             className="panel-resize gutter-resize"
             role="separator"
             aria-label="Resize track controls"
+            title="Drag to resize - double-click to reset"
+            onDoubleClick={resetGutter}
             onMouseDown={(e) => {
               e.preventDefault();
               gutterDrag.current = { x: e.clientX, w: gutterW };
@@ -2457,6 +2557,8 @@ export function WaveformTimeline({
             className="panel-resize gutter-resize"
             role="separator"
             aria-label="Resize track controls"
+            title="Drag to resize - double-click to reset"
+            onDoubleClick={resetGutter}
             onMouseDown={(e) => {
               e.preventDefault();
               gutterDrag.current = { x: e.clientX, w: gutterW };

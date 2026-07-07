@@ -39,6 +39,16 @@ export function MediaPool({
     return w >= 160 && w <= 420 ? w : 200;
   });
   const resize = useRef<{ x: number; w: number } | null>(null);
+  // Global "Reset layout" (dispatched from the timeline's menus).
+  useEffect(() => {
+    const onReset = () => {
+      setWidth(200);
+      localStorage.removeItem("waver-pool-w");
+      setCollapsed(false);
+    };
+    window.addEventListener("waver:reset-layout", onReset);
+    return () => window.removeEventListener("waver:reset-layout", onReset);
+  }, []);
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!resize.current) return;
@@ -136,6 +146,11 @@ export function MediaPool({
         className="panel-resize pool-resize"
         role="separator"
         aria-label="Resize media pool"
+        title="Drag to resize - double-click to reset"
+        onDoubleClick={() => {
+          setWidth(200);
+          localStorage.removeItem("waver-pool-w");
+        }}
         onMouseDown={(e) => {
           e.preventDefault();
           resize.current = { x: e.clientX, w: width };
