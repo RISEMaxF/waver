@@ -3,6 +3,7 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import type { ProjectApi } from "../../audio/useProject";
 import type { ProjectView } from "../../audio/project";
 import type { ChannelLevel } from "../../audio/types";
+import { ContextMenu, type MenuState } from "./ContextMenu";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -62,6 +63,8 @@ export function TrackHeaders({
   const tracks = project?.tracks ?? [];
   const anySolo = tracks.some((t) => t.soloed);
   const [pickerFor, setPickerFor] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<MenuState | null>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -85,6 +88,9 @@ export function TrackHeaders({
 
   return (
     <div className="track-headers" aria-label="Track controls">
+      {ctxMenu && (
+        <ContextMenu menu={ctxMenu} onClose={() => setCtxMenu(null)} />
+      )}
       {tracks.map((t, i) => {
         const dimmed = t.muted || (anySolo && !t.soloed);
         const armed = t.id === armedTrackId;
@@ -96,6 +102,40 @@ export function TrackHeaders({
             style={{
               height: isCollapsed ? COLLAPSED_H : TRACK_HEIGHT,
               ["--track-color" as string]: t.color ?? trackColor(i),
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setCtxMenu({
+                x: e.clientX,
+                y: e.clientY,
+                items: [
+                  { label: "Rename…", onClick: () => setEditingId(t.id) },
+                  { label: "Color…", onClick: () => setPickerFor(t.id) },
+                  {
+                    label: isCollapsed ? "Expand" : "Collapse",
+                    onClick: () => onToggleCollapse(t.id),
+                  },
+                  "sep",
+                  {
+                    label: armed ? "Disarm" : "Arm for recording",
+                    onClick: () => onToggleArm(t.id),
+                  },
+                  {
+                    label: t.muted ? "Unmute" : "Mute",
+                    onClick: () => api.setTrackMuted(t.id, !t.muted),
+                  },
+                  {
+                    label: t.soloed ? "Unsolo" : "Solo",
+                    onClick: () => api.setTrackSoloed(t.id, !t.soloed),
+                  },
+                  "sep",
+                  {
+                    label: "Delete track…",
+                    danger: true,
+                    onClick: () => removeTrack(t.id, t.name, t.clips.length),
+                  },
+                ],
+              });
             }}
           >
             <div
@@ -175,6 +215,8 @@ export function TrackHeaders({
                 </button>
                 <TrackName
                   name={t.name}
+                  editing={editingId === t.id}
+                  onEditingChange={(on) => setEditingId(on ? t.id : null)}
                   onRename={(n) => api.setTrackName(t.id, n)}
                 />
                 <button
@@ -258,15 +300,19 @@ export function TrackHeaders({
   );
 }
 
-/** Track name: double-click to edit inline, commit on blur / Enter (F8). */
+/** Track name: double-click / Enter / context-menu Rename edits inline, commit on
+ *  blur / Enter (F8). Editing state lives in TrackHeaders so the menu can start it. */
 function TrackName({
   name,
+  editing,
+  onEditingChange,
   onRename,
 }: {
   name: string;
+  editing: boolean;
+  onEditingChange: (on: boolean) => void;
   onRename: (n: string) => void;
 }) {
-  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(name);
   if (editing) {
     return (
@@ -278,13 +324,13 @@ function TrackName({
         onBlur={() => {
           const v = draft.trim();
           if (v && v !== name) onRename(v);
-          setEditing(false);
+          onEditingChange(false);
         }}
         onKeyDown={(e) => {
           if (e.key === "Enter") e.currentTarget.blur();
           if (e.key === "Escape") {
             setDraft(name);
-            setEditing(false);
+            onEditingChange(false);
           }
         }}
       />
@@ -292,7 +338,7 @@ function TrackName({
   }
   const startEdit = () => {
     setDraft(name);
-    setEditing(true);
+    onEditingChange(true);
   };
   return (
     <span

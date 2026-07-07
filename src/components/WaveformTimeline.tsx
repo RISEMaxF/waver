@@ -18,6 +18,8 @@ import { useTransport } from "../audio/useTransport";
 import { fetchPeaks, type PeakPyramid } from "../audio/peaks";
 import { Inspector } from "./timeline/Inspector";
 import { TrackHeaders } from "./timeline/TrackHeaders";
+import { MasterMeter } from "./timeline/MasterMeter";
+import { ContextMenu, type MenuState } from "./timeline/ContextMenu";
 import {
   IconChannels,
   IconClose,
@@ -178,6 +180,7 @@ export function WaveformTimeline({
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [followPlayhead, setFollowPlayhead] = useState(true);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState<MenuState | null>(null);
   const altBypass = useRef(false); // Alt held during a drag momentarily disables snap
   const [, tick] = useState(0);
   // Snapshot of where/when the current recording began (for the live overlay).
@@ -469,12 +472,17 @@ export function WaveformTimeline({
           }
         } else {
           const stepsPerBar = gridDiv * 4;
+          const barPx = stepSec * stepsPerBar * pps;
+          // Zoom-adaptive labels: never closer than ~40px (QoL).
+          const labelEvery = Math.max(1, Math.ceil(40 / Math.max(1, barPx)));
           for (let idx = Math.max(0, Math.ceil(scrollSec / stepSec)); ; idx++) {
             const x = (idx * stepSec - scrollSec) * pps;
             if (x > width) break;
             if (idx % stepsPerBar === 0) {
-              tick(Math.round(x));
-              rx.fillText(String(idx / stepsPerBar + 1), Math.round(x) + 3, 12);
+              const bar = idx / stepsPerBar;
+              if (barPx >= 4 || bar % labelEvery === 0) tick(Math.round(x));
+              if (bar % labelEvery === 0)
+                rx.fillText(String(bar + 1), Math.round(x) + 3, 12);
             }
           }
         }
@@ -533,11 +541,16 @@ export function WaveformTimeline({
       ctx.globalAlpha = 1;
     } else {
       const stepsPerBar = gridDiv * 4;
+      const stepPx = stepSec * pps;
       for (let idx = Math.max(0, Math.ceil(scrollSec / stepSec)); ; idx++) {
         const x = (idx * stepSec - scrollSec) * pps;
         if (x > width) break;
-        ctx.globalAlpha =
-          idx % stepsPerBar === 0 ? 0.5 : idx % gridDiv === 0 ? 0.28 : 0.1;
+        const isBar = idx % stepsPerBar === 0;
+        const isBeat = idx % gridDiv === 0;
+        // Zoom-adaptive density (QoL): drop subdivisions that would bunch <4px.
+        if (!isBar && !isBeat && stepPx < 4) continue;
+        if (!isBar && isBeat && stepPx * gridDiv < 4) continue;
+        ctx.globalAlpha = isBar ? 0.5 : isBeat ? 0.28 : 0.1;
         const xr = Math.round(x) + 0.5;
         ctx.beginPath();
         ctx.moveTo(xr, 0);
@@ -1154,40 +1167,50 @@ export function WaveformTimeline({
     }
   }, [project, selected, api]);
 
-  const pasteAtPlayhead = useCallback(async () => {
-    const c = clipboard.current;
-    if (!c || !project) return;
-    // The clipboard source must still exist (New/Open can replace the pool).
-    if (!project.sources.some((s) => s.id === c.source_id)) {
-      clipboard.current = null;
-      setHasClipboard(false);
-      onNotice(
-        "The clipboard clip's audio is no longer in this project — clipboard cleared.",
+  // Paste the clipboard clip onto `track` at `wanted` (frames), selecting what
+  // landed. Shared by ⌘V (playhead) and the right-click "Paste here".
+  const pasteAtPos = useCallback(
+    async (track: ProjectView["tracks"][number], wanted: number) => {
+      const c = clipboard.current;
+      if (!c || !project) return;
+      // The clipboard source must still exist (New/Open can replace the pool).
+      if (!project.sources.some((s) => s.id === c.source_id)) {
+        clipboard.current = null;
+        setHasClipboard(false);
+        onNotice(
+          "The clipboard clip's audio is no longer in this project — clipboard cleared.",
+        );
+        return;
+      }
+      const len = c.source_out - c.source_in;
+      const start = freeStartOn(track, wanted, len);
+      const before = new Set(
+        project.tracks.flatMap((t) => t.clips.map((cl) => cl.id)),
       );
-      return;
-    }
+      const view = await api.paste(specFrom(c, start), track.id);
+      const placed = view?.tracks
+        .flatMap((t) => t.clips)
+        .find((cl) => !before.has(cl.id));
+      if (placed) {
+        setSelected(placed.id);
+        revealSec(placed.timeline_start / sr);
+      }
+      if (start !== wanted)
+        onNotice(
+          `Pasted at ${fmtTimecode(start / sr)} — no room at that position.`,
+        );
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [project, sr, api, onNotice, revealSec],
+  );
+
+  const pasteAtPlayhead = useCallback(async () => {
+    if (!project) return;
     const track =
       project.tracks.find((t) => t.id === effArmedId) ?? project.tracks[0];
     if (!track) return;
-    const len = c.source_out - c.source_in;
-    const wanted = Math.round(playheadSec * sr);
-    const start = freeStartOn(track, wanted, len);
-    const before = new Set(
-      project.tracks.flatMap((t) => t.clips.map((cl) => cl.id)),
-    );
-    const view = await api.paste(specFrom(c, start), track.id);
-    const placed = view?.tracks
-      .flatMap((t) => t.clips)
-      .find((cl) => !before.has(cl.id));
-    if (placed) {
-      setSelected(placed.id);
-      revealSec(placed.timeline_start / sr);
-    }
-    if (start !== wanted)
-      onNotice(
-        `Pasted at ${fmtTimecode(start / sr)} — no room at the playhead.`,
-      );
-  }, [effArmedId, project, playheadSec, sr, api, onNotice, revealSec]);
+    await pasteAtPos(track, Math.round(playheadSec * sr));
+  }, [effArmedId, project, playheadSec, sr, pasteAtPos]);
 
   const duplicateSel = useCallback(async () => {
     const c = project && selected ? findClip(project, selected) : null;
@@ -1465,6 +1488,92 @@ export function WaveformTimeline({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // ---- Right-click menus (QoL): clip / lane / ruler ----
+  const onCanvasContext = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!project) return;
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const hit = hitTest(x, y);
+    if (hit) {
+      const clip = hit.clip;
+      setSelected(clip.id);
+      setCtxMenu({
+        x: e.clientX,
+        y: e.clientY,
+        items: [
+          { label: "Split at playhead", shortcut: "S", onClick: splitAtPlayhead },
+          { label: "Duplicate", shortcut: "⌘D", onClick: duplicateSel },
+          "sep",
+          { label: "Cut", shortcut: "⌘X", onClick: cutSel },
+          { label: "Copy", shortcut: "⌘C", onClick: copySel },
+          {
+            label: "Paste at playhead",
+            shortcut: "⌘V",
+            disabled: !hasClipboard,
+            onClick: pasteAtPlayhead,
+          },
+          "sep",
+          {
+            label: "Split into mono channels",
+            onClick: () => api.splitChannels(clip.id),
+          },
+          { label: "Zoom to clip", shortcut: "E", onClick: zoomToSelection },
+          "sep",
+          {
+            label: "Delete",
+            shortcut: "⌫",
+            danger: true,
+            onClick: () => {
+              api.del(clip.id, ripple);
+              setSelected(null);
+            },
+          },
+        ],
+      });
+      return;
+    }
+    const ti = trackIndexAtY(y);
+    const track = project.tracks[ti];
+    const frame = Math.round(Math.max(0, xToSec(x)) * sr);
+    setCtxMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        {
+          label: "Paste here",
+          disabled: !hasClipboard || !track,
+          onClick: () => track && pasteAtPos(track, frame),
+        },
+        { label: "Add track", onClick: () => api.addTrack() },
+      ],
+    });
+  };
+
+  const onRulerContext = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const frame = Math.round(snapToGrid(Math.max(0, rulerSec(e))) * sr);
+    setCtxMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        { label: "Play from here", onClick: () => startPlay(frame) },
+        { label: "Seek to here", onClick: () => seek(frame) },
+        "sep",
+        { label: "Fit project", shortcut: "F", onClick: fitToWindow },
+      ],
+    });
+  };
+
+  // Timeline quick-play (Audacity): double-click the ruler to play from there.
+  const onRulerDouble = (e: React.MouseEvent) => {
+    const frame = Math.round(snapToGrid(Math.max(0, rulerSec(e))) * sr);
+    if (playing) seek(frame);
+    else startPlay(frame);
+  };
+
   return (
     <div className="waveform">
       <div className="wave-toolbar">
@@ -1532,6 +1641,7 @@ export function WaveformTimeline({
             </span>
           )}
         </div>
+        <MasterMeter playing={playing && !paused} />
         <span className="tb-sep" />
         <button
           type="button"
@@ -1782,6 +1892,8 @@ export function WaveformTimeline({
             onMouseMove={onRulerMove}
             onMouseUp={onRulerUp}
             onMouseLeave={onRulerUp}
+            onDoubleClick={onRulerDouble}
+            onContextMenu={onRulerContext}
           />
         </div>
         <div className="wave-scroll">
@@ -1828,6 +1940,7 @@ export function WaveformTimeline({
                 onMouseUp={onMouseUp}
                 onMouseLeave={onMouseUp}
                 onDoubleClick={onDoubleClick}
+                onContextMenu={onCanvasContext}
                 onWheel={onWheel}
               />
             )}
@@ -1835,6 +1948,9 @@ export function WaveformTimeline({
         </div>
       </div>
       <Inspector project={project} selected={selected} api={api} sr={sr} />
+      {ctxMenu && (
+        <ContextMenu menu={ctxMenu} onClose={() => setCtxMenu(null)} />
+      )}
       {showShortcuts && (
         <ShortcutsOverlay onClose={() => setShowShortcuts(false)} />
       )}

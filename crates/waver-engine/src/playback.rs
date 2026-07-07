@@ -12,7 +12,7 @@
 //! reported playhead tracks the audible output (FR-6.2), not the render head.
 
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -40,6 +40,9 @@ pub struct Playback {
     paused: Arc<AtomicBool>,
     played: Arc<AtomicU64>,
     ended: Arc<AtomicBool>,
+    /// Per-channel output peak (abs, f32 bits) since the last `take_levels` — written
+    /// by the RT callback, reset-on-read by the metering poll (FR: master meter).
+    levels: Arc<[AtomicU32; 2]>,
     start_frame: u64,
     loop_region: Option<LoopRegion>,
     output: Option<JoinHandle<()>>,
@@ -56,6 +59,14 @@ impl Playback {
             }
             _ => raw,
         }
+    }
+
+    /// Per-channel linear output peak since the previous call (reset-on-read).
+    pub fn take_levels(&self) -> [f32; 2] {
+        [
+            f32::from_bits(self.levels[0].swap(0, Ordering::Relaxed)),
+            f32::from_bits(self.levels[1].swap(0, Ordering::Relaxed)),
+        ]
     }
 
     pub fn is_playing(&self) -> bool {
@@ -146,6 +157,7 @@ pub fn start(
     let paused = Arc::new(AtomicBool::new(false));
     let played = Arc::new(AtomicU64::new(0));
     let ended = Arc::new(AtomicBool::new(false));
+    let levels: Arc<[AtomicU32; 2]> = Arc::new([AtomicU32::new(0), AtomicU32::new(0)]);
 
     // Ring holds ~0.25 s of interleaved output samples.
     let ring_slots = (sample_rate as usize * channels as usize / 4).max(8192);
@@ -207,6 +219,7 @@ pub fn start(
         let stop = stop.clone();
         let paused = paused.clone();
         let played = played.clone();
+        let levels = levels.clone();
         thread::Builder::new()
             .name("waver-audio-output".into())
             .spawn(move || {
@@ -216,7 +229,7 @@ pub fn start(
                     buffer_size: BufferSize::Default,
                 };
                 let stream = match build_output_stream(
-                    &dev, config, fmt, consumer, paused, played, channels,
+                    &dev, config, fmt, consumer, paused, played, levels, channels,
                 ) {
                     Ok(s) => s,
                     Err(e) => {
@@ -257,6 +270,7 @@ pub fn start(
         paused,
         played,
         ended,
+        levels,
         start_frame,
         loop_region,
         output: Some(output),
@@ -277,6 +291,7 @@ fn build_output_stream(
     consumer: rtrb::Consumer<f32>,
     paused: Arc<AtomicBool>,
     played: Arc<AtomicU64>,
+    levels: Arc<[AtomicU32; 2]>,
     channels: u16,
 ) -> Result<cpal::Stream, EngineError> {
     let oc = channels.max(1) as usize;
@@ -285,6 +300,7 @@ fn build_output_stream(
             let mut consumer = consumer;
             let paused = paused.clone();
             let played = played.clone();
+            let levels = levels.clone();
             dev.build_output_stream::<$t, _, _>(
                 config.clone(),
                 move |data: &mut [$t], _: &cpal::OutputCallbackInfo| {
@@ -295,10 +311,17 @@ fn build_output_stream(
                         return;
                     }
                     let mut frames = 0u64;
+                    // Local per-callback peaks (L, R); channels >2 fold into R.
+                    let mut pk = [0.0f32; 2];
                     for (i, out) in data.iter_mut().enumerate() {
                         match consumer.pop() {
                             Ok(v) => {
                                 *out = <$t>::from_sample(v);
+                                let slot = usize::from(i % oc != 0);
+                                let a = v.abs();
+                                if a > pk[slot] {
+                                    pk[slot] = a;
+                                }
                                 if i % oc == oc - 1 {
                                     frames += 1;
                                 }
@@ -307,6 +330,10 @@ fn build_output_stream(
                             Err(_) => *out = <$t>::from_sample(0.0f32),
                         }
                     }
+                    // Non-negative f32 bit patterns order like integers, so fetch_max
+                    // on the bits is a lock-free float max (RT-safe, no CAS loop).
+                    levels[0].fetch_max(pk[0].to_bits(), Ordering::Relaxed);
+                    levels[1].fetch_max(pk[1].to_bits(), Ordering::Relaxed);
                     played.fetch_add(frames, Ordering::Relaxed);
                 },
                 move |_e| {},

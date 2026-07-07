@@ -798,6 +798,17 @@ pub fn playback_status(state: State<'_, AudioState>) -> PlaybackStatus {
     }
 }
 
+/// Master output peaks (linear, per channel) since the last poll — feeds the UI's
+/// stereo master meter. Empty when nothing is playing.
+#[tauri::command]
+pub fn playback_levels(state: State<'_, AudioState>) -> Vec<f32> {
+    let guard = state.playback.lock().expect("playback mutex poisoned");
+    match guard.as_ref() {
+        Some(pb) if pb.is_playing() => pb.take_levels().to_vec(),
+        _ => Vec::new(),
+    }
+}
+
 /// FR-7.1 — import an audio file: decode+transcode to a scratch WAV, then place it
 /// on the timeline as a non-destructive clip (like a recording).
 #[tauri::command]

@@ -117,6 +117,8 @@ export const stopPlayback = () => invoke("stop_playback");
 export const previewSource = (deviceId: string, sourceId: string) =>
   invoke<void>("preview_source", { deviceId, sourceId });
 export const playbackStatus = () => invoke<PlaybackStatus>("playback_status");
+/** Master output peaks (linear, per channel) since the last poll; [] when idle. */
+export const playbackLevels = () => invoke<number[]>("playback_levels");
 
 export const undo = () => invoke<ProjectView>("undo");
 export const redo = () => invoke<ProjectView>("redo");

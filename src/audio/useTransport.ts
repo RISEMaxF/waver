@@ -17,16 +17,23 @@ export function useTransport(opts: {
   // the playhead during playback, so it can't be read back at end).
   const playStartFrame = useRef(0);
 
-  const startPlay = useCallback(() => {
-    if (!outputId || !hasContent) return;
-    playStartFrame.current = startFrame;
-    play(outputId, startFrame)
-      .then(() => {
-        setPlaying(true);
-        setPaused(false);
-      })
-      .catch(() => {});
-  }, [outputId, hasContent, startFrame]);
+  // `fromFrame` overrides the playhead position (timeline quick-play). The guard
+  // matters: transport buttons pass the click event here, which must be ignored.
+  const startPlay = useCallback(
+    (fromFrame?: unknown) => {
+      if (!outputId || !hasContent) return;
+      const frame = typeof fromFrame === "number" ? fromFrame : startFrame;
+      playStartFrame.current = frame;
+      onPosition(frame / sr);
+      play(outputId, frame)
+        .then(() => {
+          setPlaying(true);
+          setPaused(false);
+        })
+        .catch(() => {});
+    },
+    [outputId, hasContent, startFrame, sr, onPosition],
+  );
 
   // Seek: move the playhead to `frame`; if currently playing, restart audio from there
   // (click-to-seek). Replacing the Playback session on the backend stops the old one.
