@@ -220,17 +220,17 @@ input[type="range"]::-moz-range-track {
 
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 13px;
-  height: 13px;
-  margin-top: -4px;
+  width: 11px;
+  height: 11px;
+  margin-top: -3px;
   border-radius: 50%;
   background: var(--slider-thumb, var(--color-accent));
   border: 2px solid var(--color-panel);
   box-shadow: var(--shadow-sm);
 }
 input[type="range"]::-moz-range-thumb {
-  width: 13px;
-  height: 13px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
   background: var(--slider-thumb, var(--color-accent));
   border: 2px solid var(--color-panel);
@@ -241,10 +241,8 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   outline-offset: 2px;
 }
 
-/* Track gain sliders take their track's identity color. */
-.track-head-gain input[type="range"] {
-  --slider-thumb: var(--track-color, var(--color-accent));
-}
+/* Track gain thumbs stay chrome-accent: the identity color already lives on the
+   strip and clips; repeating it on a control just adds noise. */
 
 /* ==================== App shell ==================== */
 .app-shell {
@@ -1321,21 +1319,25 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   opacity: 0.5;
 }
 
+/* Armed shows on the ● button (solid red) + a whisper of tint — the surface stays
+   calm so track color, name, and M/S keep their contrast (Ableton/Logic pattern). */
 .track-head.armed {
-  background: color-mix(in srgb, var(--err) 18%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--err) 45%, transparent);
+  background: color-mix(in srgb, var(--err) 5%, transparent);
 }
 
 .track-head-top {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.4rem;
+  justify-content: flex-start;
+  gap: 0.3rem;
 }
 
 .track-name {
+  flex: 1;
+  min-width: 0;
   font-size: var(--font-size-sm);
   font-weight: 600;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1453,22 +1455,23 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   border-color: var(--color-text-muted);
 }
 
+/* Active toggles go SOLID, hardware-LED style: unmistakable at a glance. */
 .ts-btn.arm.on {
-  background: color-mix(in srgb, var(--err) 30%, transparent);
+  background: var(--err);
   border-color: var(--err);
-  color: var(--err);
+  color: #fff;
 }
 
 .ts-btn.mute.on {
-  background: color-mix(in srgb, var(--warn) 30%, transparent);
+  background: var(--warn);
   border-color: var(--warn);
-  color: var(--warn);
+  color: #141414;
 }
 
 .ts-btn.solo.on {
-  background: color-mix(in srgb, var(--color-solo) 28%, transparent);
+  background: var(--color-solo);
   border-color: var(--color-solo);
-  color: var(--color-solo);
+  color: #141414;
 }
 
 .track-head-gain {
@@ -1495,12 +1498,12 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
    bottom edge so it never pushes the fixed-height row's content out (self-review). --- */
 .track-mini-meter {
   position: absolute;
-  left: 12px;
-  right: 8px;
-  bottom: 3px;
-  height: 4px;
+  left: 16px; /* aligns with the header's content column */
+  right: 10px;
+  bottom: 2px;
+  height: 3px;
   border-radius: var(--radius-xs);
-  background: color-mix(in srgb, var(--color-border) 60%, transparent);
+  background: color-mix(in srgb, var(--color-border) 45%, transparent);
   overflow: hidden;
 }
 
