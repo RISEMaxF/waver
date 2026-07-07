@@ -240,14 +240,21 @@ function App() {
   useEffect(() => {
     const win = getCurrentWindow();
     const unlisten = win.onCloseRequested(async (event) => {
-      if (!dirtyRef.current) return; // clean - let it close
+      if (!dirtyRef.current) {
+        // Clean close: drop the crash-recovery snapshot so the next launch
+        // doesn't offer a stale restore (review finding).
+        await discardRecovery().catch(() => {});
+        return;
+      }
       event.preventDefault();
       const discard = await ask(
         "You have unsaved changes. Discard them and quit?",
         { title: "Unsaved changes", kind: "warning" },
       );
       if (discard) {
+        // The user explicitly discarded this work - don't resurrect it either.
         dirtyRef.current = false;
+        await discardRecovery().catch(() => {});
         await win.destroy();
       }
     });

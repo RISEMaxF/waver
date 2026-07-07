@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import * as api from "./project";
+import { discardRecovery } from "./project";
 import type { ProjectView } from "./project";
 
 export function useProject() {
@@ -43,7 +44,12 @@ export function useProject() {
     refresh,
     dirty,
     markDirty: useCallback(() => setDirty(true), []),
-    markClean: useCallback(() => setDirty(false), []),
+    // Clean transitions (save / save-as / open / new) also drop the crash-recovery
+    // snapshot, so the restore prompt only ever follows an unclean exit (review).
+    markClean: useCallback(() => {
+      setDirty(false);
+      discardRecovery().catch(() => {});
+    }, []),
     split: (id: string, frame: number) => run(api.splitClip(id, frame)),
     trimEnd: (id: string, frame: number) => run(api.trimClipEnd(id, frame)),
     trimStart: (id: string, frame: number) => run(api.trimClipStart(id, frame)),

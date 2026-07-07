@@ -97,17 +97,21 @@ impl Wsola {
             seg: Vec::new(),
             refbuf: Vec::new(),
         };
-        // Prime one unsearched window so the first emitted hop has both OLA halves
-        // (no fade-in at play start).
-        Self::fetch(mixer, &mut w.seg, oc, start, win);
-        for i in 0..win {
-            let g = w.hann[i];
+        // Prime the accumulator in its POST-SHIFT state: the second half of a window
+        // one hop behind `start`, exactly what step() expects to find after its
+        // shift. The first emitted hop then sums two half-windows (sin^2 + cos^2 = 1)
+        // like every later hop - review finding: the old full-window prime collided
+        // with step 1's window at the same offset (0->2x ramp, doubled audio).
+        let prime_pos = (start - hop as f64).max(0.0);
+        Self::fetch(mixer, &mut w.seg, oc, prime_pos, win);
+        for i in 0..hop {
+            let g = w.hann[i + hop];
             for c in 0..oc {
-                w.acc[i * oc + c] += w.seg[i * oc + c] * g;
+                w.acc[i * oc + c] = w.seg[(i + hop) * oc + c] * g;
             }
         }
-        w.natural_next = start + hop as f64;
-        w.next_nominal = start + hop as f64 * rate;
+        w.natural_next = prime_pos + hop as f64;
+        w.next_nominal = start;
         w
     }
 
@@ -340,16 +344,26 @@ pub fn start(
                         thread::sleep(Duration::from_millis(5));
                         continue;
                     }
-                    // Only push when there's room for a whole block.
-                    if producer.slots() < block.len() {
+                    // Only push when there's room for a whole (max-size) block.
+                    if producer.slots() < RENDER_BLOCK * oc {
                         thread::sleep(Duration::from_millis(2));
                         continue;
                     }
                     if unity {
+                        // Render only up to the loop end so audio never overruns the
+                        // wrap point (review finding: block-quantized loop overshoot).
+                        let mut frames = RENDER_BLOCK;
+                        if let Some(lr) = loop_region {
+                            if lr.end > lr.start && (src_pos as u64) < lr.end {
+                                frames = frames.min((lr.end - src_pos as u64) as usize);
+                            }
+                        }
+                        block.resize(frames * oc, 0.0);
                         mixer.mix_into(&mut block, src_pos as u64);
-                        src_pos += RENDER_BLOCK as f64;
+                        src_pos += frames as f64;
                     } else if let Some(w) = wsola.as_mut() {
                         // Pitch-preserving stretch: WSOLA hops until a block is ready.
+                        block.resize(RENDER_BLOCK * oc, 0.0);
                         let need = block.len();
                         while stretch_out.len() < need {
                             w.step(&mixer, &mut stretch_out);
@@ -359,6 +373,7 @@ pub fn start(
                         src_pos = w.next_nominal;
                     } else {
                         // Varispeed: resample the mixed stream (tape repitch).
+                        block.resize(RENDER_BLOCK * oc, 0.0);
                         let need = (RENDER_BLOCK as f64 * rate).ceil() as usize + 2;
                         src_block.resize(need * oc, 0.0);
                         let base = src_pos.floor();
@@ -535,4 +550,54 @@ fn build_output_stream(
     }
     .map_err(|e| EngineError::Backend(e.to_string()))?;
     Ok(stream)
+}
+
+#[cfg(test)]
+mod wsola_tests {
+    use super::*;
+    use waver_core::model::{Clip, Project, Source, Track};
+
+    fn dc_project(dir: &std::path::Path) -> Project {
+        let path = dir.join("dc.wav");
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 48_000,
+            bits_per_sample: 32,
+            sample_format: hound::SampleFormat::Float,
+        };
+        let mut w = hound::WavWriter::create(&path, spec).unwrap();
+        for _ in 0..96_000 {
+            w.write_sample(1.0f32).unwrap();
+        }
+        w.finalize().unwrap();
+        let src = Source::new(path, 1, 48_000, 96_000);
+        let mut project = Project::new(48_000);
+        project.sources.push(src.clone());
+        let mut track = Track::new("T");
+        track.clips.push(Clip::new(&src, 0));
+        project.tracks.push(track);
+        project
+    }
+
+    /// Review regression: a DC=1.0 input time-stretched by WSOLA must come out as
+    /// 1.0 everywhere INCLUDING the first hop (the old prime doubled it to 2.0).
+    #[test]
+    fn wsola_is_unity_gain_from_the_first_hop() {
+        let dir = std::env::temp_dir().join("waver-wsola-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let project = dc_project(&dir);
+        let mixer = Mixer::new(&project, 1).unwrap();
+        let mut w = Wsola::new(&mixer, 1, 1.5, 0.0);
+        let mut out = Vec::new();
+        for _ in 0..8 {
+            w.step(&mixer, &mut out);
+        }
+        // Skip the last window (source tail fades by design); check the first hops.
+        for (i, &v) in out[..4 * 1024].iter().enumerate() {
+            assert!(
+                (v - 1.0).abs() < 0.02,
+                "sample {i} = {v} (expected ~1.0; first-hop OLA must sum to unity)"
+            );
+        }
+    }
 }
