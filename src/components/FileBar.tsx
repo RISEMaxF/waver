@@ -135,9 +135,10 @@ export function FileBar({
       <div className="filebar-group">
         <button
           type="button"
-          className="tbtn"
+          className="tbtn icon-only"
           disabled={busy}
-          title="Start a new empty project"
+          title="New project"
+          aria-label="New project"
           onClick={() =>
             run("New", async () => {
               if (!(await okToDiscard(dirty, "start a new project"))) return;
@@ -150,11 +151,12 @@ export function FileBar({
           }
         >
           <IconNew />
-          <span>New</span>
         </button>
         <button
           type="button"
-          className="tbtn"
+          className="tbtn icon-only"
+          aria-label="Open project"
+          title="Open project"
           disabled={busy}
           onClick={() =>
             run("Open", async () => {
@@ -174,31 +176,32 @@ export function FileBar({
           }
         >
           <IconOpen />
-          <span>Open</span>
         </button>
         <button
           type="button"
-          className="tbtn"
+          className={`tbtn icon-only${busyAction === "Save" ? " working" : ""}`}
           disabled={busy}
+          aria-label="Save project"
           title={
-            projectPath
-              ? `Save to ${basename(projectPath)} (⌘S)`
-              : "Save project (⌘S)"
+            busyAction === "Save"
+              ? "Saving…"
+              : projectPath
+                ? `Save to ${basename(projectPath)} (⌘S)`
+                : "Save project (⌘S)"
           }
           onClick={doSave}
         >
           <IconSave />
-          <span>{busyAction === "Save" ? "Saving…" : "Save"}</span>
         </button>
         <button
           type="button"
-          className="tbtn"
+          className={`tbtn icon-only${busyAction === "Save As" ? " working" : ""}`}
           disabled={busy}
-          title="Save to a new file (⇧⌘S)"
+          aria-label="Save As"
+          title={busyAction === "Save As" ? "Saving…" : "Save to a new file (⇧⌘S)"}
           onClick={doSaveAs}
         >
           <IconSaveAs />
-          <span>{busyAction === "Save As" ? "Saving…" : "Save As"}</span>
         </button>
         <span
           className="filebar-project"
@@ -224,7 +227,9 @@ export function FileBar({
       <div className="filebar-group">
         <button
           type="button"
-          className="tbtn"
+          className={`tbtn icon-only${busyAction === "Import" ? " working" : ""}`}
+          aria-label="Import audio"
+          title={busyAction === "Import" ? "Importing…" : "Import audio file"}
           disabled={busy}
           onClick={() =>
             run("Import", async () => {
@@ -238,7 +243,6 @@ export function FileBar({
           }
         >
           <IconImport />
-          <span>{busyAction === "Import" ? "Importing…" : "Import"}</span>
         </button>
         <select
           value={format}
@@ -261,7 +265,7 @@ export function FileBar({
         </select>
         <button
           type="button"
-          className="tbtn"
+          className={`tbtn icon-only${busyAction === "Export" ? " working" : ""}`}
           disabled={busy || !hasContent}
           onClick={() =>
             run("Export", async () => {
@@ -274,12 +278,16 @@ export function FileBar({
               if (p) setMsg(`Exported ${basename(p)}`);
             })
           }
+          aria-label="Export mixdown"
           title={
-            hasContent ? "Export mixdown" : "Record or import something first"
+            busyAction === "Export"
+              ? "Exporting…"
+              : hasContent
+                ? "Export mixdown"
+                : "Record or import something first"
           }
         >
           <IconExport />
-          <span>{busyAction === "Export" ? "Exporting…" : "Export"}</span>
         </button>
       </div>
 

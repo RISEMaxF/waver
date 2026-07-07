@@ -135,6 +135,11 @@ body {
   justify-content: center;
 }
 
+/* A busy file command pulses its icon (labels are tooltip-only now). */
+.tbtn.working svg {
+  animation: pulse 1s ease-in-out infinite;
+}
+
 .tbtn.sm {
   height: 26px;
   padding: 0 var(--space-2);
