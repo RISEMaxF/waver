@@ -54,6 +54,8 @@ export const trimClipStart = (clipId: string, frame: number) =>
   invoke<ProjectView>("trim_clip_start", { clipId, frame });
 export const moveClip = (clipId: string, trackId: string, frame: number) =>
   invoke<ProjectView>("move_clip", { clipId, trackId, frame });
+export const deleteRange = (start: number, end: number, ripple: boolean) =>
+  invoke<ProjectView>("delete_range", { start, end, ripple });
 export const deleteClip = (clipId: string, ripple: boolean) =>
   invoke<ProjectView>("delete_clip", { clipId, ripple });
 export const splitClipChannels = (clipId: string) =>
@@ -117,6 +119,9 @@ export const stopPlayback = () => invoke("stop_playback");
 export const previewSource = (deviceId: string, sourceId: string) =>
   invoke<void>("preview_source", { deviceId, sourceId });
 export const playbackStatus = () => invoke<PlaybackStatus>("playback_status");
+/** Nearest zero crossing to `frame` (source frames) — click-free edit points. */
+export const zeroCrossing = (sourceId: string, frame: number) =>
+  invoke<number>("zero_crossing", { sourceId, frame });
 /** Master output peaks (linear, per channel) since the last poll; [] when idle. */
 export const playbackLevels = () => invoke<number[]>("playback_levels");
 

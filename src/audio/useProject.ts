@@ -50,6 +50,8 @@ export function useProject() {
     move: (id: string, track: string, frame: number) =>
       run(api.moveClip(id, track, frame)),
     del: (id: string, ripple: boolean) => run(api.deleteClip(id, ripple)),
+    deleteRange: (start: number, end: number, ripple: boolean) =>
+      run(api.deleteRange(start, end, ripple)),
     splitChannels: (id: string) => run(api.splitClipChannels(id)),
     setClipGain: (id: string, g: number) => run(api.setClipGain(id, g)),
     setTrackGain: (id: string, g: number) => run(api.setTrackGain(id, g)),

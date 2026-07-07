@@ -68,6 +68,8 @@ pub fn run() {
             commands::stop_playback,
             commands::playback_status,
             commands::playback_levels,
+            commands::delete_range,
+            commands::zero_crossing,
             commands::import_audio,
             commands::export_project,
             commands::new_project,

@@ -88,6 +88,25 @@ export const IconZoomSel = (p: IconProps) => (
   </Svg>
 );
 
+// Loop / cycle playback.
+export const IconLoop = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M17 4l3 3-3 3" />
+    <path d="M20 7H8a4 4 0 00-4 4v1" />
+    <path d="M7 20l-3-3 3-3" />
+    <path d="M4 17h12a4 4 0 004-4v-1" />
+  </Svg>
+);
+
+// Zero-crossing snap: a sine passing through the baseline dot.
+export const IconZeroCross = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M3 12h18" strokeDasharray="1.5 2.5" />
+    <path d="M4 12c2.5-7 5.5-7 8 0s5.5 7 8 0" />
+    <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
 // Snap magnet.
 export const IconMagnet = (p: IconProps) => (
   <Svg {...p}>

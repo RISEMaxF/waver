@@ -12,7 +12,7 @@ import type {
   ProjectView,
 } from "../audio/project";
 import type { ChannelLevel } from "../audio/types";
-import { setRecordTarget } from "../audio/project";
+import { setRecordTarget, zeroCrossing } from "../audio/project";
 import type { ProjectApi } from "../audio/useProject";
 import { useTransport } from "../audio/useTransport";
 import { fetchPeaks, type PeakPyramid } from "../audio/peaks";
@@ -31,6 +31,7 @@ import {
   IconFollow,
   IconGrid,
   IconHelp,
+  IconLoop,
   IconMagnet,
   IconPaste,
   IconPause,
@@ -44,6 +45,7 @@ import {
   IconZoomIn,
   IconZoomOut,
   IconZoomSel,
+  IconZeroCross,
 } from "./icons";
 import {
   drawClipWave,
@@ -104,6 +106,7 @@ type Drag =
   | { kind: "fade-in"; clipId: string }
   | { kind: "fade-out"; clipId: string }
   | { kind: "scrub" }
+  | { kind: "range"; anchorSec: number }
   | null;
 
 type Zone = "trim-start" | "trim-end" | "fade-in" | "fade-out" | "body";
@@ -181,6 +184,13 @@ export function WaveformTimeline({
   const [followPlayhead, setFollowPlayhead] = useState(true);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<MenuState | null>(null);
+  // Time-range selection (drag across empty lane space): powers loop + range ops.
+  const [range, setRange] = useState<{ start: number; end: number } | null>(
+    null,
+  );
+  const [loopOn, setLoopOn] = useState(false);
+  // Snap splits/trims to source zero crossings — click-free cuts (FR-2.3).
+  const [zeroCross, setZeroCross] = useState(true);
   const altBypass = useRef(false); // Alt held during a drag momentarily disables snap
   const [, tick] = useState(0);
   // Snapshot of where/when the current recording began (for the live overlay).
@@ -207,6 +217,13 @@ export function WaveformTimeline({
       startFrame: Math.round(playheadSec * sr),
       sr,
       onPosition: setPlayheadSec,
+      loop:
+        loopOn && range
+          ? {
+              start: Math.round(range.start * sr),
+              end: Math.round(range.end * sr),
+            }
+          : null,
     });
 
   // Default-arm the first track (and re-arm when the armed one is deleted) so recording
@@ -754,6 +771,27 @@ export function WaveformTimeline({
       }
     }
 
+    // Time-range selection overlay: accent tint + hard edges, over the clips so
+    // it reads on filled lanes, under the playhead.
+    if (range) {
+      const rx0 = (range.start - scrollSec) * pps;
+      const rx1 = (range.end - scrollSec) * pps;
+      if (rx1 > 0 && rx0 < width) {
+        ctx.fillStyle = hexA(th.clipEdgeSel, 0.12);
+        ctx.fillRect(rx0, 0, rx1 - rx0, total);
+        ctx.strokeStyle = th.clipEdgeSel;
+        ctx.globalAlpha = 0.7;
+        ctx.lineWidth = 1;
+        for (const rx of [rx0, rx1]) {
+          ctx.beginPath();
+          ctx.moveTo(Math.round(rx) + 0.5, 0);
+          ctx.lineTo(Math.round(rx) + 0.5, total);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+      }
+    }
+
     const px = (playheadSec - scrollSec) * pps;
     if (px >= 0 && px <= width) {
       ctx.strokeStyle = th.playhead;
@@ -783,6 +821,7 @@ export function WaveformTimeline({
     bpm,
     gridDiv,
     stepSec,
+    range,
   ]);
 
   drawRef.current = draw;
@@ -889,9 +928,11 @@ export function WaveformTimeline({
         };
       }
     } else {
+      // Empty lane: arm a range-select drag. A plain click (no movement) still
+      // seeks — resolved on mouseup so click-to-seek keeps working.
       setSelected(null);
-      seek(Math.round(snapToGrid(clickedSec) * sr));
-      drag.current = { kind: "scrub" };
+      drag.current = { kind: "range", anchorSec: clickedSec };
+      setRange(null);
     }
     tick((n) => n + 1);
   };
@@ -901,6 +942,15 @@ export function WaveformTimeline({
     mouse.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     altBypass.current = e.altKey; // hold Alt while dragging to bypass snap
     if (drag.current) {
+      if (drag.current.kind === "range") {
+        const a = drag.current.anchorSec;
+        const b = Math.max(0, xToSec(mouse.current.x));
+        setRange(
+          Math.abs(b - a) * pps < 3
+            ? null
+            : { start: Math.min(a, b), end: Math.max(a, b) },
+        );
+      }
       if (drag.current.kind === "scrub")
         setPlayheadSec(snapToGrid(Math.max(0, xToSec(mouse.current.x))));
       drawRef.current();
@@ -942,10 +992,13 @@ export function WaveformTimeline({
     } else if (d.kind === "trim-end" && clip) {
       const frame = Math.round(snapSec(xToSec(mouse.current.x), step) * sr);
       if (frame !== clip.timeline_start + clipLen(clip))
-        api.trimEnd(clip.id, frame);
+        zcTimelineFrame(clip, frame).then((f) =>
+          api.trimEnd(clip.id, Math.max(clip.timeline_start + 1, f)),
+        );
     } else if (d.kind === "trim-start" && clip) {
       const frame = Math.round(snapSec(xToSec(mouse.current.x), step) * sr);
-      if (frame !== clip.timeline_start) api.trimStart(clip.id, frame);
+      if (frame !== clip.timeline_start)
+        zcTimelineFrame(clip, frame).then((f) => api.trimStart(clip.id, f));
     } else if (d.kind === "fade-in" && clip) {
       const lenFrames = Math.max(
         0,
@@ -962,6 +1015,19 @@ export function WaveformTimeline({
     } else if (d.kind === "scrub") {
       // Settle the playhead at the final scrub position (and seek there if playing).
       seek(Math.round(snapToGrid(Math.max(0, xToSec(mouse.current.x))) * sr));
+    } else if (d.kind === "range") {
+      const a = d.anchorSec;
+      const b = Math.max(0, xToSec(mouse.current.x));
+      if (Math.abs(b - a) * pps < 3) {
+        // No real drag: behave like the old empty-lane click (seek + clear).
+        setRange(null);
+        seek(Math.round(snapToGrid(b) * sr));
+      } else {
+        const start = snapToGrid(Math.min(a, b));
+        const end = snapToGrid(Math.max(a, b));
+        setRange(end > start ? { start, end } : null);
+        seek(Math.round(start * sr)); // Space then plays the selection
+      }
     }
     tick((n) => n + 1);
   };
@@ -1076,9 +1142,34 @@ export function WaveformTimeline({
     }
   };
 
-  const splitAtPlayhead = useCallback(() => {
-    if (selected) api.split(selected, Math.round(playheadSec * sr));
-  }, [selected, playheadSec, sr, api]);
+  // Map a timeline frame on `clip` to the nearest source zero crossing and back.
+  // Timeline and source stay locked (t - timeline_start == s - source_in).
+  const zcTimelineFrame = useCallback(
+    async (clip: ClipView, timelineFrame: number): Promise<number> => {
+      if (!zeroCross) return timelineFrame;
+      const sf = clip.source_in + (timelineFrame - clip.timeline_start);
+      if (sf <= 0) return timelineFrame;
+      try {
+        const zf = await zeroCrossing(clip.source_id, Math.round(sf));
+        return timelineFrame + (zf - Math.round(sf));
+      } catch {
+        return timelineFrame; // engine unavailable — edit still applies unsnapped
+      }
+    },
+    [zeroCross],
+  );
+
+  const splitAtPlayhead = useCallback(async () => {
+    const c = project && selected ? findClip(project, selected) : null;
+    if (!c || !selected) return;
+    let frame = Math.round(playheadSec * sr);
+    const adj = await zcTimelineFrame(c, frame);
+    // Only keep the snap when it stays strictly inside the clip.
+    if (adj > c.timeline_start && adj < c.timeline_start + clipLen(c))
+      frame = adj;
+    api.split(selected, frame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, selected, playheadSec, sr, api, zcTimelineFrame]);
 
   // A non-overlapping start frame for a `len`-frame clip on `track`: the wanted
   // position, or appended after the track's clips if that would overlap (mirrors the
@@ -1280,15 +1371,36 @@ export function WaveformTimeline({
     [pps, playheadSec, width],
   );
 
-  // Zoom so the selected clip fills the viewport (Audacity "Zoom to Selection").
+  // Zoom to the time-range selection when present, else the selected clip
+  // (Audacity "Zoom to Selection").
   const zoomToSelection = useCallback(() => {
-    const c = project && selected ? findClip(project, selected) : null;
-    if (!c) return;
-    const len = clipLen(c) / sr;
-    if (len <= 0) return;
-    setPps(clampPps((width * 0.9) / len));
-    setScrollSec(Math.max(0, c.timeline_start / sr - len * 0.05));
-  }, [project, selected, sr, width]);
+    let startS: number;
+    let lenS: number;
+    if (range) {
+      startS = range.start;
+      lenS = range.end - range.start;
+    } else {
+      const c = project && selected ? findClip(project, selected) : null;
+      if (!c) return;
+      startS = c.timeline_start / sr;
+      lenS = clipLen(c) / sr;
+    }
+    if (lenS <= 0) return;
+    setPps(clampPps((width * 0.9) / lenS));
+    setScrollSec(Math.max(0, startS - lenS * 0.05));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, selected, range, sr, width]);
+
+  // Delete the selected time range across all tracks (honors the Ripple toggle).
+  const deleteRangeSel = useCallback(async () => {
+    if (!range) return;
+    await api.deleteRange(
+      Math.round(range.start * sr),
+      Math.round(range.end * sr),
+      ripple,
+    );
+    setRange(null);
+  }, [range, sr, api, ripple]);
 
   // Nudge the selected clip along the timeline by one grid step (Shift = ×4).
   // Skips the move if it would overlap another clip on the same track.
@@ -1374,6 +1486,9 @@ export function WaveformTimeline({
     seek,
     seekEnd: () => seek(Math.round(contentEndSec() * sr)),
     zoomStep,
+    hasRange: !!range,
+    clearRange: () => setRange(null),
+    deleteRangeSel,
     toggleShortcuts: () => setShowShortcuts((s) => !s),
     toggleSnap: () => setSnapEnabled((s) => !s),
   });
@@ -1402,6 +1517,9 @@ export function WaveformTimeline({
     seek,
     seekEnd: () => seek(Math.round(contentEndSec() * sr)),
     zoomStep,
+    hasRange: !!range,
+    clearRange: () => setRange(null),
+    deleteRangeSel,
     toggleShortcuts: () => setShowShortcuts((s) => !s),
     toggleSnap: () => setSnapEnabled((s) => !s),
   };
@@ -1446,6 +1564,9 @@ export function WaveformTimeline({
           e.preventDefault();
           k.api.del(k.selected, k.ripple);
           setSelected(null);
+        } else if (k.hasRange) {
+          e.preventDefault();
+          k.deleteRangeSel();
         }
       } else if (e.key === "ArrowLeft" && !mod && k.selected) {
         e.preventDefault();
@@ -1482,9 +1603,10 @@ export function WaveformTimeline({
         e.preventDefault();
         k.toggleShortcuts();
       } else if (e.key === "Escape") {
-        // Hierarchical Escape (W-03/W-25): stop playback first, then clear the
-        // selection. Popovers/overlay consume Escape before it reaches here.
+        // Hierarchical Escape (W-03/W-25): stop playback, then the time range,
+        // then the clip selection. Popovers/overlay consume Escape earlier.
         if (k.playing) k.stopPlay();
+        else if (k.hasRange) k.clearRange();
         else setSelected(null);
       } else if (e.key === " ") {
         e.preventDefault();
@@ -1559,6 +1681,22 @@ export function WaveformTimeline({
           onClick: () => track && pasteAtPos(track, frame),
         },
         { label: "Add track", onClick: () => api.addTrack() },
+        ...(range
+          ? ([
+              "sep",
+              {
+                label: loopOn ? "Stop looping range" : "Loop range",
+                onClick: () => setLoopOn((l) => !l),
+              },
+              {
+                label: "Delete range",
+                shortcut: "⌫",
+                danger: true,
+                onClick: deleteRangeSel,
+              },
+              { label: "Clear range", onClick: () => setRange(null) },
+            ] as const)
+          : []),
       ],
     });
   };
@@ -1729,6 +1867,31 @@ export function WaveformTimeline({
           aria-pressed={followPlayhead}
         >
           <IconFollow />
+        </button>
+        <button
+          type="button"
+          className={`tbtn icon-only${loopOn && range ? " active" : ""}`}
+          disabled={!range && !loopOn}
+          onClick={() => setLoopOn((l) => !l)}
+          title={
+            range
+              ? "Loop the selected range during playback"
+              : "Loop — drag across empty lane space to select a range first"
+          }
+          aria-label="Loop selection"
+          aria-pressed={loopOn}
+        >
+          <IconLoop />
+        </button>
+        <button
+          type="button"
+          className={`tbtn icon-only${zeroCross ? " active" : ""}`}
+          onClick={() => setZeroCross((z) => !z)}
+          title="Snap splits & trims to zero crossings (click-free cuts)"
+          aria-label="Snap to zero crossings"
+          aria-pressed={zeroCross}
+        >
+          <IconZeroCross />
         </button>
         <div
           className="grid-controls"
@@ -2000,6 +2163,7 @@ function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
       title: "Transport",
       items: [
         ["Space", "Play / pause (stops a rolling take)"],
+        ["Drag empty lane", "Select a time range (loop / delete)"],
         ["Shift + R", "Start / stop recording"],
         ["Esc", "Stop playback · clear selection"],
         ["Home / End", "Jump to start / end"],
@@ -2015,7 +2179,7 @@ function ShortcutsOverlay({ onClose }: { onClose: () => void }) {
         ["⌘/Ctrl + C / X / V", "Copy / cut / paste"],
         ["⌘/Ctrl + D", "Duplicate clip"],
         ["← / →", "Nudge clip (Shift = ×4)"],
-        ["Delete / Backspace", "Delete clip"],
+        ["Delete / Backspace", "Delete clip (or the selected range)"],
       ],
     },
     {

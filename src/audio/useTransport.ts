@@ -7,10 +7,12 @@ export function useTransport(opts: {
   outputId: string | null;
   hasContent: boolean;
   startFrame: number;
+  /** Loop region in frames (cycle playback); null = free-run. */
+  loop?: { start: number; end: number } | null;
   sr: number;
   onPosition: (sec: number) => void;
 }) {
-  const { outputId, hasContent, startFrame, sr, onPosition } = opts;
+  const { outputId, hasContent, startFrame, sr, onPosition, loop } = opts;
   const [playing, setPlaying] = useState(false);
   const [paused, setPaused] = useState(false);
   // Where the current playback began, captured at play() time (startFrame moves with
@@ -25,14 +27,14 @@ export function useTransport(opts: {
       const frame = typeof fromFrame === "number" ? fromFrame : startFrame;
       playStartFrame.current = frame;
       onPosition(frame / sr);
-      play(outputId, frame)
+      play(outputId, frame, loop?.start, loop?.end)
         .then(() => {
           setPlaying(true);
           setPaused(false);
         })
         .catch(() => {});
     },
-    [outputId, hasContent, startFrame, sr, onPosition],
+    [outputId, hasContent, startFrame, sr, onPosition, loop],
   );
 
   // Seek: move the playhead to `frame`; if currently playing, restart audio from there
@@ -41,9 +43,10 @@ export function useTransport(opts: {
     (frame: number) => {
       playStartFrame.current = frame;
       onPosition(frame / sr);
-      if (playing && outputId) play(outputId, frame).catch(() => {});
+      if (playing && outputId)
+        play(outputId, frame, loop?.start, loop?.end).catch(() => {});
     },
-    [playing, outputId, sr, onPosition],
+    [playing, outputId, sr, onPosition, loop],
   );
 
   const togglePause = useCallback(() => {

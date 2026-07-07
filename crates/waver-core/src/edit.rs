@@ -141,6 +141,63 @@ impl Project {
         Ok(())
     }
 
+    /// Delete everything inside `[start, end)` across all tracks. Clips fully
+    /// inside vanish; clips overlapping one edge are cut at it; a clip spanning the
+    /// whole range keeps its outer remainders. With `ripple`, material at/after
+    /// `end` shifts left by the range length. Returns how many clips were touched.
+    pub fn delete_range(&mut self, start: u64, end: u64, ripple: bool) -> Result<usize, EditError> {
+        if end <= start {
+            return Err(EditError::Invalid("empty range".into()));
+        }
+        let len = end - start;
+        let mut affected = 0usize;
+        for track in &mut self.tracks {
+            let clips = std::mem::take(&mut track.clips);
+            let mut next = Vec::with_capacity(clips.len());
+            for clip in clips {
+                let cs = clip.timeline_start;
+                let ce = clip.timeline_end();
+                if ce <= start || cs >= end {
+                    next.push(clip);
+                    continue;
+                }
+                affected += 1;
+                if cs < start && ce > end {
+                    // Spans the whole range: keep both outer remainders.
+                    let (left, rest) = clip
+                        .split_at_timeline(start)
+                        .map_err(|e| EditError::Invalid(e.to_string()))?;
+                    let (_, right) = rest
+                        .split_at_timeline(end)
+                        .map_err(|e| EditError::Invalid(e.to_string()))?;
+                    next.push(left);
+                    next.push(right);
+                } else if cs < start {
+                    let (left, _) = clip
+                        .split_at_timeline(start)
+                        .map_err(|e| EditError::Invalid(e.to_string()))?;
+                    next.push(left);
+                } else if ce > end {
+                    let (_, right) = clip
+                        .split_at_timeline(end)
+                        .map_err(|e| EditError::Invalid(e.to_string()))?;
+                    next.push(right);
+                }
+                // else: fully inside the range — dropped.
+            }
+            if ripple {
+                for c in &mut next {
+                    if c.timeline_start >= end {
+                        c.timeline_start -= len;
+                    }
+                }
+            }
+            next.sort_by_key(|c| c.timeline_start);
+            track.clips = next;
+        }
+        Ok(affected)
+    }
+
     /// Move a clip to a new track and timeline position (spec FR-4.2).
     pub fn move_clip(
         &mut self,
@@ -477,6 +534,46 @@ mod tests {
         let clip_id = clip.id;
         project.tracks[0].clips.push(clip);
         (project, track_id, clip_id)
+    }
+
+    #[test]
+    fn delete_range_trims_edges_splits_spanning_and_drops_inner() {
+        let (mut p, _t, clip_id) = project_with_clip(); // clip spans [0, 10_000)
+                                                        // Cut [2_000, 3_000) out of the middle: left [0,2000) + right [3000,10000).
+        let n = p.delete_range(2_000, 3_000, false).unwrap();
+        assert_eq!(n, 1);
+        let clips = &p.tracks[0].clips;
+        assert_eq!(clips.len(), 2);
+        assert_eq!(clips[0].timeline_start, 0);
+        assert_eq!(clips[0].timeline_end(), 2_000);
+        assert_eq!(clips[1].timeline_start, 3_000);
+        assert_eq!(clips[1].timeline_end(), 10_000);
+        // Audio stays anchored: the right part's source picks up at frame 3_000.
+        assert_eq!(clips[1].source_in, 3_000);
+        assert_eq!(p.validate(), Ok(()));
+        let _ = clip_id;
+    }
+
+    #[test]
+    fn delete_range_ripple_shifts_later_material_left() {
+        let (mut p, _t, _c) = project_with_clip(); // clip spans [0, 10_000)
+        let n = p.delete_range(2_000, 3_000, true).unwrap();
+        assert_eq!(n, 1);
+        let clips = &p.tracks[0].clips;
+        assert_eq!(clips.len(), 2);
+        // Right remainder slid left to butt against the cut.
+        assert_eq!(clips[1].timeline_start, 2_000);
+        assert_eq!(clips[1].timeline_end(), 9_000);
+        assert_eq!(p.validate(), Ok(()));
+    }
+
+    #[test]
+    fn delete_range_rejects_empty_and_drops_covered_clips() {
+        let (mut p, _t, _c) = project_with_clip();
+        assert!(p.delete_range(5, 5, false).is_err());
+        let n = p.delete_range(0, 10_000, false).unwrap(); // covers the whole clip
+        assert_eq!(n, 1);
+        assert!(p.tracks[0].clips.is_empty());
     }
 
     #[test]

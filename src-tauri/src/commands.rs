@@ -631,6 +631,40 @@ pub fn delete_clip(
     })
 }
 
+/// Delete everything inside [start, end) across all tracks (range edit). With
+/// `ripple`, later material closes the gap.
+#[tauri::command]
+pub fn delete_range(
+    state: State<'_, AudioState>,
+    start: u64,
+    end: u64,
+    ripple: bool,
+) -> Result<ProjectView, String> {
+    apply_edit(&state, |p| p.delete_range(start, end, ripple).map(|_| ()))
+}
+
+/// Snap a source-frame position to the nearest zero crossing (±~40 ms window at
+/// 48 kHz) so splits and trims land click-free (supports FR-2.3 clean output).
+#[tauri::command]
+pub fn zero_crossing(
+    state: State<'_, AudioState>,
+    source_id: String,
+    frame: u64,
+) -> Result<u64, String> {
+    let id = parse_id(&source_id)?;
+    let path = {
+        let guard = state.edit.lock().expect("edit mutex poisoned");
+        guard
+            .project
+            .sources
+            .iter()
+            .find(|s| s.id == id)
+            .map(|s| s.path.clone())
+    }
+    .ok_or_else(|| format!("no source {source_id}"))?;
+    waver_engine::nearest_zero_crossing(&path, frame, 2_000).map_err(|e| e.to_string())
+}
+
 /// FR-4.6 — explode a multichannel clip into one mono clip per channel.
 #[tauri::command]
 pub fn split_clip_channels(

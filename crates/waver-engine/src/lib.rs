@@ -11,6 +11,7 @@
 //! lock-free SPSC ring buffer (`rtrb`); a separate consumer thread meters and writes
 //! to disk.
 
+pub mod analyze;
 pub mod capture;
 pub mod enumerate;
 pub mod export;
@@ -21,6 +22,7 @@ pub mod mixer;
 pub mod peaks;
 pub mod playback;
 
+pub use analyze::nearest_zero_crossing;
 pub use capture::{RecordingInfo, WavRecorder};
 pub use enumerate::{enumerate_devices, enumerate_hosts};
 pub use export::{export_project, BitDepth, ExportFormat, ExportOptions};
