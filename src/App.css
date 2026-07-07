@@ -1272,14 +1272,16 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   font-size: var(--font-size-xs);
 }
 
+/* Budgeted for the fixed 112px row: 24 (top) + 24 (toggles) + 16 (gain) + 14 (meta)
+   + 3×4 gaps + 10 padding = 100px, leaving air for the bottom mini meter. */
 .track-head-main {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  gap: 6px;
-  padding: 0.5rem 0.6rem;
+  gap: 4px;
+  padding: 6px 0.6rem 4px;
 }
 
 .track-name {
