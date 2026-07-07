@@ -21,11 +21,15 @@ interface ToastMsg {
 
 function ToastItem({ toast }: { toast: ToastMsg }) {
   const { kind, text, onDismiss } = toast;
+  // App re-renders ~10x/s from meter levels and the dismiss handlers are inline
+  // arrows, so the timer must NOT key on onDismiss identity — it would reset forever.
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
   useEffect(() => {
     if (kind !== "notice") return;
-    const id = setTimeout(onDismiss, 6000);
+    const id = setTimeout(() => dismissRef.current(), 6000);
     return () => clearTimeout(id);
-  }, [kind, text, onDismiss]);
+  }, [kind, text]);
   return (
     <div
       className={`toast ${kind}`}

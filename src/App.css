@@ -1103,7 +1103,7 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   align-self: stretch;
   min-height: 22px;
   background: var(--color-border);
-  margin: 0 2px;
+  margin: 14px 2px; /* inset from the fixed-height toolbar's edges */
 }
 
 .ripple-toggle {
@@ -1113,19 +1113,6 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   cursor: pointer;
-}
-
-.wave-info {
-  margin-left: auto;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
-
-.wave-barbeat {
-  color: var(--color-accent);
-  font-weight: 700;
 }
 
 /* Body: track-header gutter + the scrollable canvas. Fills the stage; scrolls
@@ -1234,11 +1221,12 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   transform: scaleX(1.5);
 }
 
-/* Invisible hit-area extension to a ≥24px target (WCAG 2.5.8; W-14). */
+/* Invisible hit-area extension toward a 24px target (WCAG 2.5.8; W-14) — kept
+   narrow enough not to shadow the collapse chevron beside it. */
 .track-color-strip::after {
   content: "";
   position: absolute;
-  inset: 0 -18px 0 0;
+  inset: 0 -12px 0 0;
 }
 
 .color-popover {
@@ -1494,9 +1482,14 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   text-align: right;
 }
 
-/* --- Armed-track mini input meter (W-12) --- */
+/* --- Armed-track mini input meter (W-12): absolutely positioned along the header's
+   bottom edge so it never pushes the fixed-height row's content out (self-review). --- */
 .track-mini-meter {
-  height: 5px;
+  position: absolute;
+  left: 12px;
+  right: 8px;
+  bottom: 3px;
+  height: 4px;
   border-radius: var(--radius-xs);
   background: color-mix(in srgb, var(--color-border) 60%, transparent);
   overflow: hidden;
@@ -1519,7 +1512,7 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   display: flex;
   align-items: stretch;
   gap: var(--space-4);
-  height: 96px; /* fixed: selection changes must not re-layout the canvas (W-19) */
+  height: 144px; /* fixed & fits the tallest panel — selection must not re-layout the canvas (W-19) */
   padding: var(--space-2) var(--space-3);
   border-top: 1px solid var(--color-border);
   background: var(--color-panel);

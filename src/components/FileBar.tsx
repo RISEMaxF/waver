@@ -115,12 +115,13 @@ export function FileBar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [markClean]);
 
-  const saveKeys = useRef({ doSave, doSaveAs });
-  saveKeys.current = { doSave, doSaveAs };
+  const saveKeys = useRef({ doSave, doSaveAs, busy });
+  saveKeys.current = { doSave, doSaveAs, busy };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
+        if (saveKeys.current.busy) return; // same guard as the buttons
         if (e.shiftKey) saveKeys.current.doSaveAs();
         else saveKeys.current.doSave();
       }
