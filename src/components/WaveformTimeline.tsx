@@ -1669,12 +1669,14 @@ export function WaveformTimeline({
         revealSec(placed.timeline_start / sr);
       }
     };
+    // Drops obey the same snapping as clip drags (grid quantize + edge magnets).
+    const dropSec = snapSec(Math.max(0, xToSec(x)), gridStep());
     if (project.tracks.length === 0) {
       // Empty timeline: complete the drop, don't swallow it (W-09).
       const view = await api.addTrack();
       const t0 = view?.tracks[0];
       if (!t0 || !view) return;
-      await place(t0, Math.round(Math.max(0, xToSec(x)) * sr), view);
+      await place(t0, Math.round(dropSec * sr), view);
       return;
     }
     // Clamp into the lane range so a drop above/below lands on a valid track.
@@ -1682,7 +1684,7 @@ export function WaveformTimeline({
     const ti = raw >= 0 ? raw : project.tracks.length - 1;
     const track = project.tracks[ti];
     if (!track) return;
-    const wanted = Math.round(Math.max(0, xToSec(x)) * sr);
+    const wanted = Math.round(dropSec * sr);
     const start = freeStartOn(track, wanted, src.frames);
     await place(track, start, project);
     if (start !== wanted)
@@ -1988,9 +1990,12 @@ export function WaveformTimeline({
       const track = c ? trackOfClip(c.id) : null;
       if (!c || !track) return;
       const stepFrames = beatGrid ? stepSec * sr : 0.1 * sr; // 1/10s default step
-      const delta = dir * stepFrames * (big ? 4 : 1);
       const len = clipLen(c);
-      const want = Math.max(0, Math.round(c.timeline_start + delta));
+      // Absolute grid indexing: nudges land ON the grid line, never accumulating
+      // sub-frame rounding drift at BPMs whose step is not frame-exact.
+      const steps = dir * (big ? 4 : 1);
+      const idx = Math.round(c.timeline_start / stepFrames) + steps;
+      const want = Math.max(0, Math.round(idx * stepFrames));
       const overlaps = track.clips.some(
         (o) =>
           o.id !== c.id &&
@@ -2497,7 +2502,7 @@ export function WaveformTimeline({
     }
     const ti = trackIndexAtY(y);
     const track = project.tracks[ti];
-    const frame = Math.round(Math.max(0, xToSec(x)) * sr);
+    const frame = Math.round(snapSec(Math.max(0, xToSec(x)), gridStep()) * sr);
     setCtxMenu({
       x: e.clientX,
       y: e.clientY,
