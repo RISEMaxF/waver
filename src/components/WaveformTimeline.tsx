@@ -3183,7 +3183,54 @@ export function WaveformTimeline({
               }}
             />
           )}
-          <div className="wave-ruler-spacer" style={{ width: gutterW }}>
+          <div
+            className={`wave-ruler-spacer${rulerH >= 48 ? " corner-tall" : ""}`}
+            style={{ width: gutterW }}
+          >
+            <div
+              className="corner-grid"
+              title="Beat grid - playhead & edits snap to it"
+            >
+              <button
+                type="button"
+                className={`tbtn sm icon-only${beatGrid ? " active" : ""}`}
+                onClick={() => setBeatGrid((g) => !g)}
+                aria-pressed={beatGrid}
+                aria-label="Beat grid"
+                title="Beat grid (snap target)"
+              >
+                <IconGrid />
+              </button>
+              <input
+                type="number"
+                className="grid-bpm"
+                min={20}
+                max={300}
+                value={bpm}
+                disabled={!beatGrid}
+                onChange={(e) =>
+                  setBpm(
+                    Math.min(300, Math.max(20, Number(e.target.value) || 120)),
+                  )
+                }
+                title="Tempo (BPM)"
+                aria-label="Tempo in BPM"
+              />
+              <select
+                className="grid-div"
+                value={gridDiv}
+                disabled={!beatGrid}
+                onChange={(e) => setGridDiv(Number(e.target.value))}
+                title="Grid resolution (steps per beat)"
+                aria-label="Grid resolution"
+              >
+                <option value={1}>1/4</option>
+                <option value={2}>1/8</option>
+                <option value={3}>1/8T</option>
+                <option value={4}>1/16</option>
+                <option value={8}>1/32</option>
+              </select>
+            </div>
             <button
               type="button"
               className="tbtn sm corner-add-track"

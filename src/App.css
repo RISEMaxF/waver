@@ -1192,15 +1192,56 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   border-bottom: 1px solid var(--color-border);
 }
 
+/* Corner = the timeline's tempo section (Ableton convention): grid + BPM +
+   division live beside the ruler they configure, with + Track alongside. Short
+   rulers get one compact row; tall rulers stack grid on top, Track at bottom. */
 .wave-ruler-spacer {
   width: 190px; /* == .track-headers width (live-synced via inline style) */
   flex-shrink: 0;
   display: flex;
-  align-items: flex-end;
-  padding: 0 var(--space-2) 3px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  padding: 0 var(--space-1-5);
   border-right: 1px solid var(--color-border);
   background: var(--color-panel);
   overflow: hidden;
+}
+
+.wave-ruler-spacer.corner-tall {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: space-between;
+  padding: var(--space-1-5);
+}
+
+.corner-grid {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.corner-grid .grid-bpm {
+  width: 3rem;
+  height: 22px;
+  padding: 0 0.3rem;
+  font-size: var(--font-size-xs);
+}
+
+.corner-grid .grid-div {
+  height: 22px;
+  padding: 0 0.2rem;
+  font-size: var(--font-size-xs);
+}
+
+.corner-grid .tbtn.sm {
+  height: 22px;
+  width: 24px;
+}
+
+.corner-add-track {
+  justify-content: center;
 }
 
 .corner-add-track {
