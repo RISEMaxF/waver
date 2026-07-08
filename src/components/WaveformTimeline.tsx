@@ -587,20 +587,32 @@ export function WaveformTimeline({
           candidates.push((c.timeline_start + clipLen(c)) / sr);
         }
       }
-      let best = sec;
-      let bestDist = SNAP_PX / pps;
+      // With the beat grid ON, positions HARD-quantize to the nearest step (DAW
+      // grid snap) - proximity magnets (edges/markers/playhead) only override
+      // when they are closer than the step itself. With the grid off, everything
+      // is a proximity magnet within the pixel window (free-form arranging).
+      let best: number;
+      let bestDist: number;
       snapLine.current = null;
+      if (beatGrid) {
+        best = gridCandidate;
+        bestDist = Math.abs(gridCandidate - sec);
+        snapLine.current = gridCandidate;
+      } else {
+        best = sec;
+        bestDist = SNAP_PX / pps;
+      }
       for (const cand of candidates) {
-        const d = Math.abs(cand - sec);
-        if (d < bestDist) {
-          bestDist = d;
+        const dist = Math.abs(cand - sec);
+        if (dist < bestDist) {
+          bestDist = dist;
           best = cand;
           snapLine.current = cand;
         }
       }
       return Math.max(0, best);
     },
-    [project, sr, pps, playheadSec, beatGrid, stepSec],
+    [snapEnabled, project, sr, pps, playheadSec, beatGrid, stepSec],
   );
 
   // ---- Draw ----
