@@ -2108,6 +2108,22 @@ export function WaveformTimeline({
     wasPlaying.current = playing;
   }, [playing]);
 
+  // Changing speed or pitch mode DURING playback re-arms the session at the
+  // current position, so the new rate is heard immediately (live speed control).
+  const speedArm = useRef<string>("");
+  useEffect(() => {
+    const key = `${playSpeed}:${preservePitch}`;
+    if (!playing) {
+      speedArm.current = key; // arm silently while stopped
+      return;
+    }
+    if (speedArm.current !== key) {
+      speedArm.current = key;
+      seek(Math.round(playheadSec * sr));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playSpeed, preservePitch, playing]);
+
   // Changing the range while loop-playing re-arms the backend loop immediately
   // (it used to stay on the old region until the next manual seek).
   const loopArm = useRef<string>("");
