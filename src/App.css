@@ -1976,6 +1976,11 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   position: relative;
 }
 
+.media-pool.drop-target {
+  outline: 2px dashed var(--color-accent);
+  outline-offset: -4px;
+}
+
 .pool-resize {
   position: absolute;
   top: 0;

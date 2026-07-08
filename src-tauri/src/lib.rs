@@ -75,6 +75,7 @@ pub fn run() {
             commands::ungroup_clips,
             commands::set_clips_locked,
             commands::add_marker,
+            commands::import_dropped,
             commands::move_marker,
             commands::rename_marker,
             commands::delete_marker,

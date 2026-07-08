@@ -1186,6 +1186,70 @@ pub fn import_to_pool(
     Ok(ProjectView::of(&st.project, &st.history))
 }
 
+fn urlencoding_decode(s: &str) -> String {
+    // Minimal percent-decoding (filenames come encodeURIComponent'd).
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Import a file DROPPED from the OS into the media pool. The webview's HTML5 drop
+/// only exposes bytes (no filesystem path, since Tauri drag-drop interception is
+/// disabled for internal DnD), so the frontend streams the raw body here; it is
+/// written under app data and then run through the normal import pipeline.
+#[tauri::command]
+pub fn import_dropped(
+    app: AppHandle,
+    state: State<'_, AudioState>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<ProjectView, String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("expected a raw file body".into());
+    };
+    if bytes.is_empty() {
+        return Err("dropped file is empty".into());
+    }
+    let name = request
+        .headers()
+        .get("x-filename")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| urlencoding_decode(v))
+        .unwrap_or_else(|| "dropped-audio".into());
+    // Keep only a safe basename.
+    let name = name
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("dropped")
+        .to_string();
+
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("imported");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let original = dir.join(format!("{stamp}-{name}"));
+    std::fs::write(&original, bytes).map_err(|e| e.to_string())?;
+
+    import_to_pool(app, state, original.to_string_lossy().into_owned())
+}
+
 /// FR-7.2/7.3 — export/mixdown the project to a file.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExportRequest {

@@ -705,7 +705,9 @@ export function WaveformTimeline({
             }
           }
         }
-        // Marker flags (labels): amber pins with names on the ruler.
+        // Marker flags: pinned to the TOP band. Names render only when the ruler
+        // is tall enough that they cannot collide with the time labels below.
+        const showMarkerNames = rulerH >= 40;
         for (const m of project?.markers ?? []) {
           const sec =
             markerDrag && markerDrag.id === m.id
@@ -715,16 +717,18 @@ export function WaveformTimeline({
           if (mx < -40 || mx > width + 40) continue;
           rx.fillStyle = th.snap;
           rx.beginPath();
-          rx.moveTo(mx, rulerH - 6);
-          rx.lineTo(mx - 4, rulerH - 12);
-          rx.lineTo(mx - 4, rulerH - 20);
-          rx.lineTo(mx + 4, rulerH - 20);
-          rx.lineTo(mx + 4, rulerH - 12);
+          rx.moveTo(mx, 12);
+          rx.lineTo(mx - 4, 8);
+          rx.lineTo(mx - 4, 2);
+          rx.lineTo(mx + 4, 2);
+          rx.lineTo(mx + 4, 8);
           rx.closePath();
           rx.fill();
-          rx.fillStyle = th.snap;
-          rx.font = th.smallFont;
-          rx.fillText(m.name, mx + 6, rulerH - 13);
+          if (showMarkerNames) {
+            rx.fillStyle = th.snap;
+            rx.font = th.smallFont;
+            rx.fillText(m.name, mx + 6, 4);
+          }
         }
         // bottom divider + playhead handle
         rx.strokeStyle = th.grid;
@@ -3216,29 +3220,32 @@ export function WaveformTimeline({
                 title="Tempo (BPM)"
                 aria-label="Tempo in BPM"
               />
-              <select
-                className="grid-div"
-                value={gridDiv}
-                disabled={!beatGrid}
-                onChange={(e) => setGridDiv(Number(e.target.value))}
-                title="Grid resolution (steps per beat)"
-                aria-label="Grid resolution"
-              >
-                <option value={1}>1/4</option>
-                <option value={2}>1/8</option>
-                <option value={3}>1/8T</option>
-                <option value={4}>1/16</option>
-                <option value={8}>1/32</option>
-              </select>
+              {rulerH >= 48 && (
+                <select
+                  className="grid-div"
+                  value={gridDiv}
+                  disabled={!beatGrid}
+                  onChange={(e) => setGridDiv(Number(e.target.value))}
+                  title="Grid resolution (steps per beat)"
+                  aria-label="Grid resolution"
+                >
+                  <option value={1}>1/4</option>
+                  <option value={2}>1/8</option>
+                  <option value={3}>1/8T</option>
+                  <option value={4}>1/16</option>
+                  <option value={8}>1/32</option>
+                </select>
+              )}
             </div>
             <button
               type="button"
-              className="tbtn sm corner-add-track"
+              className={`tbtn sm corner-add-track${rulerH < 48 ? " icon-only" : ""}`}
               onClick={() => api.addTrack()}
               title="Add an empty track"
+              aria-label="Add track"
             >
               <IconPlus />
-              <span>Track</span>
+              {rulerH >= 48 && <span>Track</span>}
             </button>
           </div>
           <div

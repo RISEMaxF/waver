@@ -192,7 +192,25 @@ interface AppInfo {
   version: string;
 }
 
+/** OS file drops must never trigger the webview's default (navigating to the
+ *  file - the "opened the clip and couldn't go back" bug). Drop targets like the
+ *  media pool handle their own imports; everything else swallows the event. */
+function useBlockNativeFileDrops() {
+  useEffect(() => {
+    const block = (e: DragEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("dragover", block);
+    window.addEventListener("drop", block);
+    return () => {
+      window.removeEventListener("dragover", block);
+      window.removeEventListener("drop", block);
+    };
+  }, []);
+}
+
 function App() {
+  useBlockNativeFileDrops();
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [poolMsg, setPoolMsg] = useState<{
     kind: "notice" | "error";

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { importToPoolDialog } from "../audio/files";
 import { playbackStatus, previewSource, stopPlayback } from "../audio/project";
 import type { ProjectView, SourceView } from "../audio/project";
@@ -112,6 +113,32 @@ export function MediaPool({
     }
   };
 
+  // Files dropped from the OS arrive as bytes (no path - Tauri interception is
+  // off for internal DnD), so stream them to the import_dropped command.
+  const AUDIO_RE = /\.(wav|flac|mp3|ogg|aac|m4a|aiff?|opus)$/i;
+  const [dragOver, setDragOver] = useState(false);
+  const importDropped = async (files: FileList) => {
+    const audio = [...files].filter((f) => AUDIO_RE.test(f.name));
+    if (!audio.length) {
+      onNotice("Drop audio files (wav, flac, mp3, ogg, aiff, opus).");
+      return;
+    }
+    setBusy(true);
+    try {
+      for (const f of audio) {
+        const bytes = await f.arrayBuffer();
+        await invoke("import_dropped", bytes, {
+          headers: { "x-filename": encodeURIComponent(f.name) },
+        });
+      }
+      onChanged();
+    } catch (e) {
+      onError(`Import failed - ${e}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const addFiles = async () => {
     setBusy(true);
     try {
@@ -141,7 +168,21 @@ export function MediaPool({
   }
 
   return (
-    <div className="media-pool" aria-label="Media pool" style={{ width }}>
+    <div
+      className={`media-pool${dragOver ? " drop-target" : ""}`}
+      aria-label="Media pool"
+      style={{ width }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        if (e.dataTransfer.files.length) importDropped(e.dataTransfer.files);
+      }}
+    >
       <div
         className="panel-resize pool-resize"
         role="separator"
@@ -183,8 +224,8 @@ export function MediaPool({
       <div className="pool-list">
         {sources.length === 0 ? (
           <p className="pool-empty">
-            Add audio files here, then drag them onto a track. Recordings and
-            imports show up too.
+            Add audio files here (or drop them from Finder), then drag them onto
+            a track. Recordings and imports show up too.
           </p>
         ) : (
           sources.map((s) => (
