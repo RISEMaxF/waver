@@ -15,13 +15,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Each Mac arch builds NATIVELY (macos-latest is arm64, macos-13 is
-          # Intel): the autotools sys-crates (opus/lame/vorbis) compile host-arch
-          # objects and cannot cross-compile between Mac architectures.
+          # Apple Silicon + Windows. Intel macOS is unsupported for now: GitHub
+          # retired its Intel (macos-13) runners, and the autotools sys-crates
+          # (opus/lame/vorbis) emit host-arch objects, so the x86_64 slice cannot
+          # be cross-compiled from arm64 either. Revisit with vendored cmake
+          # builds if Intel demand appears.
           - platform: macos-latest
-            target: ""
-            args: ""
-          - platform: macos-13
             target: ""
             args: ""
           - platform: windows-latest

@@ -15,7 +15,7 @@
   <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-B7410E?logo=rust&logoColor=white" />
   <img alt="React" src="https://img.shields.io/badge/React-19-087EA4?logo=react&logoColor=white" />
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white" />
-  <img alt="Platform" src="https://img.shields.io/badge/platform-macOS-lightgrey?logo=apple" />
+  <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon)%20%7C%20Windows-lightgrey" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue" />
 </p>
 
@@ -168,7 +168,8 @@ Design principles:
 
 - Audible scrubbing (varispeed audition while dragging)
 - Group copy and paste
-- Windows and Linux builds with CI
+- Intel macOS and Linux builds
+- MP3 and OGG (Vorbis) export on Windows (LAME/libvorbis need a non-autotools build there)
 - Non-destructive per-clip effects (EQ, compression)
 
 ## License
