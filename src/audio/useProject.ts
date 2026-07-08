@@ -28,6 +28,9 @@ export function useProject() {
         setProject(view);
         setDirty(true);
         setError(null);
+        // Live edit sync: a running playback session adopts the change at once
+        // (gain/fades/moves are heard immediately, no restart).
+        api.syncPlayback().catch(() => {});
         return view; // callers can locate what the edit created (W-08/W-09)
       } catch (e) {
         setError(`Edit failed - ${e}`);

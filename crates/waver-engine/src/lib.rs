@@ -29,6 +29,7 @@ pub use export::consolidate_track_range;
 pub use export::{export_project, BitDepth, ExportFormat, ExportOptions};
 pub use import::{import_file, ImportInfo};
 pub use input::{open as open_input, InputSession};
+pub use mixer::DecodeCache;
 pub use mixer::{decode_wav, DecodedSource, Mixer};
 pub use peaks::{build_pyramid, encode_pyramid, generate_for_wav};
 pub use playback::{start as start_playback, LoopRegion, Playback, SpeedSpec};

@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 
 use uuid::Uuid;
 use waver_core::engine::EngineError;
@@ -54,8 +55,38 @@ pub fn decode_wav(path: impl AsRef<Path>) -> Result<DecodedSource, EngineError> 
 }
 
 /// Mixes a project's timeline into interleaved output.
+/// Decoded sources shared across playback sessions, keyed by path + mtime + size
+/// so a re-recorded file invalidates naturally. Without this, EVERY play/seek
+/// re-decoded every source from disk (a 30-minute take is ~700 MB decoded).
+#[derive(Default)]
+pub struct DecodeCache {
+    map: HashMap<std::path::PathBuf, (Option<std::time::SystemTime>, u64, Arc<DecodedSource>)>,
+}
+
+impl DecodeCache {
+    pub fn get_or_decode(&mut self, path: &std::path::Path) -> Option<Arc<DecodedSource>> {
+        let meta = std::fs::metadata(path).ok();
+        let mtime = meta.as_ref().and_then(|m| m.modified().ok());
+        let size = meta.map(|m| m.len()).unwrap_or(0);
+        if let Some((cm, cs, decoded)) = self.map.get(path) {
+            if *cm == mtime && *cs == size {
+                return Some(decoded.clone());
+            }
+        }
+        let decoded = Arc::new(decode_wav(path).ok()?);
+        self.map
+            .insert(path.to_path_buf(), (mtime, size, decoded.clone()));
+        Some(decoded)
+    }
+
+    /// Drop entries whose files no longer exist (bounded growth across sessions).
+    pub fn prune(&mut self) {
+        self.map.retain(|p, _| p.exists());
+    }
+}
+
 pub struct Mixer {
-    sources: HashMap<Uuid, DecodedSource>,
+    sources: HashMap<Uuid, Arc<DecodedSource>>,
     project: Project,
     out_channels: u16,
 }
@@ -66,9 +97,19 @@ impl Mixer {
     /// skipped — its clips render as silence rather than failing the whole mix, so
     /// playback/export degrade gracefully (mix_into already skips absent sources).
     pub fn new(project: &Project, out_channels: u16) -> Result<Self, EngineError> {
+        let mut cache = DecodeCache::default();
+        Self::new_with_cache(project, out_channels, &mut cache)
+    }
+
+    /// Build a mixer reusing a shared decode cache - repeat plays/seeks are instant.
+    pub fn new_with_cache(
+        project: &Project,
+        out_channels: u16,
+        cache: &mut DecodeCache,
+    ) -> Result<Self, EngineError> {
         let mut sources = HashMap::new();
         for src in &project.sources {
-            if let Ok(decoded) = decode_wav(&src.path) {
+            if let Some(decoded) = cache.get_or_decode(&src.path) {
                 sources.insert(src.id, decoded);
             }
         }
@@ -77,6 +118,12 @@ impl Mixer {
             project: project.clone(),
             out_channels: out_channels.max(1),
         })
+    }
+
+    /// Swap in an edited project mid-playback (live gain/fade/move updates). Clips
+    /// whose sources are not yet decoded render silent until the next full arm.
+    pub fn set_project(&mut self, project: Project) {
+        self.project = project;
     }
 
     pub fn out_channels(&self) -> u16 {

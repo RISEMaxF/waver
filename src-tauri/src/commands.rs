@@ -41,6 +41,9 @@ pub struct AudioState {
     edit: Mutex<EditState>,
     /// The active playback session, if any.
     playback: Mutex<Option<Playback>>,
+    /// Decoded-source cache shared across sessions: play/seek re-arms are instant
+    /// instead of re-reading every WAV from disk (a 30-min take is ~700 MB).
+    decode_cache: Mutex<waver_engine::DecodeCache>,
     /// Monotonic take counter for friendly names.
     takes: AtomicU64,
 }
@@ -57,6 +60,7 @@ impl Default for AudioState {
                 history: History::default(),
             }),
             playback: Mutex::new(None),
+            decode_cache: Mutex::new(waver_engine::DecodeCache::default()),
             takes: AtomicU64::new(0),
         }
     }
@@ -972,8 +976,17 @@ pub fn play(
     };
     let playback = {
         let guard = state.edit.lock().expect("edit mutex poisoned");
-        waver_engine::start_playback(&guard.project, &device_id, from_frame, loop_region, speed)
-            .map_err(|e| e.to_string())?
+        let mut cache = state.decode_cache.lock().expect("cache mutex poisoned");
+        cache.prune();
+        waver_engine::start_playback(
+            &guard.project,
+            &device_id,
+            from_frame,
+            loop_region,
+            speed,
+            &mut cache,
+        )
+        .map_err(|e| e.to_string())?
     };
     *state.playback.lock().expect("playback mutex poisoned") = Some(playback);
     Ok(())
@@ -1008,6 +1021,7 @@ pub fn preview_source(
         0,
         None,
         waver_engine::SpeedSpec::default(),
+        &mut state.decode_cache.lock().expect("cache mutex poisoned"),
     )
     .map_err(|e| e.to_string())?;
     *state.playback.lock().expect("playback mutex poisoned") = Some(playback);
@@ -1053,6 +1067,27 @@ pub fn playback_status(state: State<'_, AudioState>) -> PlaybackStatus {
             position_frames: 0,
         },
     }
+}
+
+/// Live edit sync: push the current project into a RUNNING playback session so
+/// gain/fade/move/mute edits are heard immediately, no restart, no click.
+#[tauri::command]
+pub fn sync_playback(state: State<'_, AudioState>) -> Result<(), String> {
+    let project = {
+        let guard = state.edit.lock().expect("edit mutex poisoned");
+        guard.project.clone()
+    };
+    if let Some(pb) = state
+        .playback
+        .lock()
+        .expect("playback mutex poisoned")
+        .as_ref()
+    {
+        if pb.is_playing() {
+            pb.update_project(project);
+        }
+    }
+    Ok(())
 }
 
 /// Master output peaks (linear, per channel) since the last poll — feeds the UI's

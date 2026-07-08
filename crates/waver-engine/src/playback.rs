@@ -15,6 +15,7 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -186,6 +187,8 @@ pub struct Playback {
     levels: Arc<[AtomicU32; 2]>,
     /// Source frames consumed per output frame (playback speed).
     rate: f64,
+    /// Live edit sync: the render thread swaps this in before its next block.
+    pending: Arc<Mutex<Option<Project>>>,
     start_frame: u64,
     loop_region: Option<LoopRegion>,
     output: Option<JoinHandle<()>>,
@@ -219,6 +222,13 @@ impl Playback {
 
     pub fn is_paused(&self) -> bool {
         self.paused.load(Ordering::Relaxed)
+    }
+
+    /// Apply an edited project to the RUNNING session (live gain/fade/move/mute
+    /// updates without a restart). Structural changes that add new sources take
+    /// effect on the next full arm instead.
+    pub fn update_project(&self, project: Project) {
+        *self.pending.lock().expect("pending mutex poisoned") = Some(project);
     }
 
     pub fn set_paused(&self, paused: bool) {
@@ -290,13 +300,14 @@ pub fn start(
     start_frame: u64,
     loop_region: Option<LoopRegion>,
     speed: SpeedSpec,
+    cache: &mut crate::mixer::DecodeCache,
 ) -> Result<Playback, EngineError> {
     let rate = speed.rate.clamp(0.25, 4.0);
     let sample_rate = project.sample_rate;
     let (_host, dev) = resolve_output_device(device_id)?;
     let (fmt, channels) = pick_output(&dev, sample_rate)?;
 
-    let mixer = Arc::new(Mixer::new(project, channels)?);
+    let mixer = Mixer::new_with_cache(project, channels, cache)?;
     let total = mixer.total_frames();
 
     let stop = Arc::new(AtomicBool::new(false));
@@ -304,6 +315,7 @@ pub fn start(
     let played = Arc::new(AtomicU64::new(0));
     let ended = Arc::new(AtomicBool::new(false));
     let levels: Arc<[AtomicU32; 2]> = Arc::new([AtomicU32::new(0), AtomicU32::new(0)]);
+    let pending: Arc<Mutex<Option<Project>>> = Arc::new(Mutex::new(None));
 
     // Ring holds ~0.25 s of interleaved output samples.
     let ring_slots = (sample_rate as usize * channels as usize / 4).max(8192);
@@ -314,13 +326,19 @@ pub fn start(
         let stop = stop.clone();
         let paused = paused.clone();
         let ended = ended.clone();
-        let mixer = mixer.clone();
+        let pending = pending.clone();
+        let mut mixer = mixer;
         thread::Builder::new()
             .name("waver-render".into())
             .spawn(move || {
                 let oc = channels as usize;
                 let unity = (rate - 1.0).abs() < 1e-6;
                 let mut src_pos = start_frame as f64;
+                let mut total = mixer.total_frames();
+                // Declick: ramp the first few ms after start (and each loop wrap) -
+                // starting mid-waveform is a step discontinuity, i.e. a click.
+                const RAMP_FRAMES: usize = 256;
+                let mut ramp_done = 0usize;
                 let mut block = vec![0.0f32; RENDER_BLOCK * oc];
                 let mut src_block: Vec<f32> = Vec::new();
                 let mut wsola =
@@ -333,6 +351,11 @@ pub fn start(
                     if paused.load(Ordering::SeqCst) {
                         thread::sleep(Duration::from_millis(5));
                         continue;
+                    }
+                    // Live edit sync: adopt the newest project before mixing on.
+                    if let Some(p) = pending.lock().expect("pending mutex poisoned").take() {
+                        mixer.set_project(p);
+                        total = mixer.total_frames();
                     }
                     // Reached the end (no loop): let the ring drain, then stop.
                     let at_end = loop_region.is_none() && src_pos >= total as f64;
@@ -391,12 +414,26 @@ pub fn start(
                         }
                         src_pos += RENDER_BLOCK as f64 * rate;
                     }
+                    if ramp_done < RAMP_FRAMES {
+                        let frames = block.len() / oc;
+                        for f in 0..frames {
+                            if ramp_done >= RAMP_FRAMES {
+                                break;
+                            }
+                            let g = ramp_done as f32 / RAMP_FRAMES as f32;
+                            for c in 0..oc {
+                                block[f * oc + c] *= g;
+                            }
+                            ramp_done += 1;
+                        }
+                    }
                     for &s in &block {
                         let _ = producer.push(s);
                     }
                     if let Some(lr) = loop_region {
                         if lr.end > lr.start && src_pos >= lr.end as f64 {
                             src_pos = lr.start as f64;
+                            ramp_done = 0; // declick the wrap too
                             if let Some(w) = wsola.as_mut() {
                                 *w = Wsola::new(&mixer, oc, rate, src_pos);
                                 stretch_out.clear();
@@ -467,6 +504,7 @@ pub fn start(
         ended,
         levels,
         rate,
+        pending,
         start_frame,
         loop_region,
         output: Some(output),

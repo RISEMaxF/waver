@@ -68,6 +68,7 @@ pub fn run() {
             commands::stop_playback,
             commands::playback_status,
             commands::playback_levels,
+            commands::sync_playback,
             commands::delete_range,
             commands::delete_clips,
             commands::move_clips,
