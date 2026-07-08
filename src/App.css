@@ -1771,6 +1771,25 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   font-variant-numeric: tabular-nums;
 }
 
+.insp-panel-wave {
+  flex: 1;
+  min-width: 160px;
+  border-right: none;
+  padding-right: 0;
+}
+
+.insp-wave-wrap {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.insp-wave-wrap canvas {
+  display: block;
+}
+
 .insp-time {
   width: 6.4rem;
   height: 26px;

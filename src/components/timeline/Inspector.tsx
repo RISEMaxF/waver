@@ -1,7 +1,122 @@
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ClipView, FadeCurve, ProjectView } from "../../audio/project";
 import type { ProjectApi } from "../../audio/useProject";
-import { CURVE_NAMES, fmtGainDb, fmtTimecode, parseTimecode } from "./renderer";
+import { fetchPeaks, type PeakPyramid } from "../../audio/peaks";
+import {
+  CURVE_NAMES,
+  drawClipWave,
+  drawFade,
+  fmtGainDb,
+  fmtTimecode,
+  parseTimecode,
+  readCanvasTheme,
+  trackColor,
+} from "./renderer";
+
+// Small per-source pyramid cache so the preview doesn't refetch on every render.
+const previewPeaks = new Map<string, PeakPyramid>();
+
+/** The selected clip's waveform with its fades drawn over it - fills the
+ *  inspector's spare width (Ableton's clip view shows the sample; so do we). */
+function WavePreview({
+  clip,
+  sr,
+  color,
+}: {
+  clip: ClipView;
+  sr: number;
+  color: string;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [, bump] = useState(0);
+
+  useEffect(() => {
+    if (previewPeaks.has(clip.source_id)) return;
+    let alive = true;
+    fetchPeaks(clip.source_id)
+      .then((p) => {
+        if (!alive) return;
+        previewPeaks.set(clip.source_id, p);
+        bump((n) => n + 1);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [clip.source_id]);
+
+  useLayoutEffect(() => {
+    const el = wrapRef.current;
+    const canvas = canvasRef.current;
+    if (!el || !canvas) return;
+    const draw = () => {
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      if (w < 10 || h < 10) return;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const th = readCanvasTheme();
+      ctx.fillStyle = th.laneAlt;
+      ctx.fillRect(0, 0, w, h);
+      // center line
+      ctx.strokeStyle = th.grid;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, Math.round(h / 2) + 0.5);
+      ctx.lineTo(w, Math.round(h / 2) + 0.5);
+      ctx.stroke();
+      const pyr = previewPeaks.get(clip.source_id);
+      const lenSec = (clip.source_out - clip.source_in) / sr;
+      if (pyr && lenSec > 0) {
+        const pps = w / lenSec;
+        drawClipWave(ctx, pyr, clip, 0, 0, w, h, pps, sr, false, w, th, color);
+        drawFade(
+          ctx,
+          "in",
+          clip.fade_in_curve,
+          clip.fade_in_len,
+          sr,
+          pps,
+          0,
+          0,
+          w,
+          h,
+          th,
+        );
+        drawFade(
+          ctx,
+          "out",
+          clip.fade_out_curve,
+          clip.fade_out_len,
+          sr,
+          pps,
+          0,
+          0,
+          w,
+          h,
+          th,
+        );
+      }
+    };
+    draw();
+    const ro = new ResizeObserver(draw);
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
+
+  return (
+    <div className="insp-wave-wrap" ref={wrapRef} aria-hidden="true">
+      <canvas ref={canvasRef} />
+    </div>
+  );
+}
 
 /** Editable clip start time (h:mm:ss.mmm or plain seconds), committing on blur/Enter
  *  via the same move op as dragging (W-27). */
@@ -171,6 +286,23 @@ export function Inspector({ project, selected, api, sr }: Props) {
         <GainRow
           value={track.gain_db}
           onChange={(v) => api.setTrackGain(track.id, v)}
+        />
+      </section>
+
+      <section className="insp-panel insp-panel-wave">
+        <h4 className="insp-title">Wave</h4>
+        <WavePreview
+          clip={clip}
+          sr={sr}
+          color={
+            track.color ??
+            trackColor(
+              Math.max(
+                0,
+                project?.tracks.findIndex((t) => t.id === track.id) ?? 0,
+              ),
+            )
+          }
         />
       </section>
     </div>
