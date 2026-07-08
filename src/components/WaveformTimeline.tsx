@@ -659,7 +659,7 @@ export function WaveformTimeline({
         rx.font = th.labelFont;
         // Ticks and labels anchor to the BOTTOM and scale with the ruler height,
         // so a tall ruler reads as a proper scale instead of a void.
-        const majorStub = Math.min(18, Math.max(6, Math.round(rulerH * 0.3)));
+        const majorStub = Math.max(6, Math.round(rulerH * 0.45));
         const labelY = rulerH - majorStub - 4;
         const tick = (x: number) => {
           rx.strokeStyle = th.grid;
@@ -750,6 +750,14 @@ export function WaveformTimeline({
         }
         const rpx = (playheadSec - scrollSec) * pps;
         if (rpx >= 0 && rpx <= width) {
+          rx.strokeStyle = th.playhead;
+          rx.globalAlpha = 0.65;
+          rx.lineWidth = 1;
+          rx.beginPath();
+          rx.moveTo(Math.round(rpx) + 0.5, 0);
+          rx.lineTo(Math.round(rpx) + 0.5, rulerH);
+          rx.stroke();
+          rx.globalAlpha = 1;
           rx.fillStyle = th.playhead;
           rx.beginPath();
           rx.moveTo(rpx - 6, 0);

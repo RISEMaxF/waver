@@ -62,6 +62,20 @@ body {
   transform: translateY(0.5px);
 }
 
+/* The toolbar's overflow scrollbar reads as a floating pill above the ruler -
+   make it whisper-thin and only visible while the pointer is over the bar. */
+.wave-toolbar::-webkit-scrollbar {
+  height: 5px;
+}
+
+.wave-toolbar::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+.wave-toolbar:hover::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+}
+
 /* Themed scrollbars — stock light scrollbars break the dark theme (W-39). */
 *::-webkit-scrollbar {
   width: 10px;
@@ -1182,8 +1196,8 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   width: 190px; /* == .track-headers width (live-synced via inline style) */
   flex-shrink: 0;
   display: flex;
-  align-items: center;
-  padding-left: var(--space-2);
+  align-items: flex-end;
+  padding: 0 var(--space-2) 3px;
   border-right: 1px solid var(--color-border);
   background: var(--color-panel);
   overflow: hidden;
