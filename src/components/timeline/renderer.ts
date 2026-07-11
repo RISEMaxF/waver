@@ -81,7 +81,7 @@ export function labelColorFor(hex: string): string {
 }
 
 // ---- geometry ----
-export const TRACK_HEIGHT = 112;
+export const TRACK_HEIGHT = 124;
 export const COLLAPSED_H = 34; // collapsed track lane height
 export const RULER_HEIGHT = 26;
 export const EDGE_PX = 6;
@@ -325,7 +325,9 @@ export function waveDisplayGain(pyramid: PeakPyramid): number {
       if (a > peak) peak = a;
     }
   }
-  const g = peak > 0.0001 ? Math.min(12, 0.9 / peak) : 1;
+  // Honest dynamics: draw near-true amplitude, allowing only a mild boost so a
+  // quiet take stays visible without flattening everything against the clamp.
+  const g = peak > 0.0001 ? Math.min(3, 0.9 / peak) : 1;
   gainCache.set(pyramid, g);
   return g;
 }

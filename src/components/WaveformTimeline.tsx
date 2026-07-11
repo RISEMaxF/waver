@@ -901,6 +901,11 @@ export function WaveformTimeline({
         ctx.lineWidth = isSel ? 2 : 1;
         ctx.strokeRect(rx0 + off, drawTop + off, rw - 2 * off, laneH - 2 * off);
 
+        // The 14 px name strip gets its own reserved band: the waveform renders
+        // in the region BELOW it, so stereo channels are never buried under it.
+        const stripH = w > 22 ? 14 : 0;
+        const waveTop = drawTop + stripH;
+        const waveH = laneH - stripH;
         const pyr = peaks.current.get(clip.source_id);
         if (pyr)
           drawClipWave(
@@ -908,9 +913,9 @@ export function WaveformTimeline({
             pyr,
             clip,
             x0,
-            drawTop,
+            waveTop,
             w,
-            laneH,
+            waveH,
             pps,
             sr,
             isSel,
@@ -980,9 +985,9 @@ export function WaveformTimeline({
           sr,
           pps,
           x0,
-          drawTop,
+          waveTop,
           w,
-          laneH,
+          waveH,
           th,
         );
         // Zero-length fades on the selected clip still show a faint corner handle,
@@ -993,12 +998,12 @@ export function WaveformTimeline({
           ctx.lineWidth = 1;
           if (fadeInFrames <= 0) {
             ctx.beginPath();
-            ctx.arc(rx0 + 4, drawTop + 4, 3, 0, Math.PI * 2);
+            ctx.arc(rx0 + 4, waveTop + 4, 3, 0, Math.PI * 2);
             ctx.stroke();
           }
           if (fadeOutFrames <= 0) {
             ctx.beginPath();
-            ctx.arc(rx0 + rw - 4, drawTop + 4, 3, 0, Math.PI * 2);
+            ctx.arc(rx0 + rw - 4, waveTop + 4, 3, 0, Math.PI * 2);
             ctx.stroke();
           }
           ctx.globalAlpha = 1;
@@ -1034,9 +1039,9 @@ export function WaveformTimeline({
           sr,
           pps,
           x0,
-          drawTop,
+          waveTop,
           w,
-          laneH,
+          waveH,
           th,
         );
         ctx.globalAlpha = 1;
@@ -1087,7 +1092,7 @@ export function WaveformTimeline({
         let pk = 0;
         for (const b of buckets)
           pk = Math.max(pk, Math.abs(b.max), Math.abs(b.min));
-        const gain = pk > 0.0001 ? Math.min(12, 0.9 / pk) : 1;
+        const gain = pk > 0.0001 ? Math.min(3, 0.9 / pk) : 1;
         ctx.fillStyle = th.waveSel;
         for (let i = 0; i < buckets.length; i++) {
           const b = buckets[i];
