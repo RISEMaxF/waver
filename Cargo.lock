@@ -4953,7 +4953,7 @@ dependencies = [
 
 [[package]]
 name = "waver"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -4969,7 +4969,7 @@ dependencies = [
 
 [[package]]
 name = "waver-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -4979,7 +4979,7 @@ dependencies = [
 
 [[package]]
 name = "waver-engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "audiopus",
  "claxon",
