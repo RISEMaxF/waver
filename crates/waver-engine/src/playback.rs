@@ -236,6 +236,13 @@ impl Playback {
     }
 
     pub fn stop(&mut self) {
+        // Declick the stop edge: engage the callback's pause fade, give it a few
+        // milliseconds to land at silence, THEN tear the stream down. This also
+        // declicks every seek, which drops the old session through here.
+        if !self.paused.load(Ordering::SeqCst) && self.is_playing() {
+            self.paused.store(true, Ordering::SeqCst);
+            thread::sleep(Duration::from_millis(25));
+        }
         self.stop.store(true, Ordering::SeqCst);
         if let Some(h) = self.output.take() {
             h.thread().unpark();
@@ -535,10 +542,20 @@ fn build_output_stream(
             let paused = paused.clone();
             let played = played.clone();
             let levels = levels.clone();
+            // Transport declick (Ardour-style, on BOTH edges): a one-pole gain
+            // smoother fades ~4 ms into pause/stop and back out of resume, instead
+            // of the step discontinuities that click. Lives in the callback so it
+            // covers pause, resume, stop, and seek teardown alike.
+            let mut smooth = 0.0f32;
+            const SMOOTH_COEF: f32 = 0.02; // ~1 ms time constant per frame @48k
             dev.build_output_stream::<$t, _, _>(
                 config.clone(),
                 move |data: &mut [$t], _: &cpal::OutputCallbackInfo| {
-                    if paused.load(Ordering::Relaxed) {
+                    let is_paused = paused.load(Ordering::Relaxed);
+                    let target = if is_paused { 0.0f32 } else { 1.0f32 };
+                    if is_paused && smooth < 0.001 {
+                        // Fully faded: hold silence WITHOUT consuming the ring, so
+                        // the position freezes where the fade landed.
                         for s in data.iter_mut() {
                             *s = <$t>::from_sample(0.0f32);
                         }
@@ -548,8 +565,12 @@ fn build_output_stream(
                     // Local per-callback peaks (L, R); channels >2 fold into R.
                     let mut pk = [0.0f32; 2];
                     for (i, out) in data.iter_mut().enumerate() {
+                        if i % oc == 0 {
+                            smooth += (target - smooth) * SMOOTH_COEF;
+                        }
                         match consumer.pop() {
                             Ok(v) => {
+                                let v = v * smooth;
                                 *out = <$t>::from_sample(v);
                                 let slot = usize::from(i % oc != 0);
                                 let a = v.abs();

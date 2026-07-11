@@ -64,17 +64,18 @@ export function useTransport(opts: {
     (frame: number) => {
       playStartFrame.current = frame;
       onPosition(frame / sr);
-      if (playing && outputId)
-        play(
-          outputId,
-          frame,
-          loop?.start,
-          loop?.end,
-          speed,
-          preservePitch,
-        ).catch(() => {});
+      if (playing && outputId) {
+        const wasPaused = paused;
+        play(outputId, frame, loop?.start, loop?.end, speed, preservePitch)
+          .then(() => {
+            // Seeking restarts the session unpaused on the backend - re-assert
+            // the pause so a paused transport stays paused at the new position.
+            if (wasPaused) pausePlayback(true).catch(() => {});
+          })
+          .catch(() => {});
+      }
     },
-    [playing, outputId, sr, onPosition, loop, speed, preservePitch],
+    [playing, paused, outputId, sr, onPosition, loop, speed, preservePitch],
   );
 
   const togglePause = useCallback(() => {
