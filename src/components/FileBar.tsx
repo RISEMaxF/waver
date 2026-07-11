@@ -92,6 +92,19 @@ export function FileBar({
   const [msg, setMsg] = useState<string | null>(null);
   const [projectPath, setProjectPath] = useState<string | null>(null);
 
+  // A project opened from the OS (double-click) binds here so Save targets it.
+  useEffect(() => {
+    const onOpened = (e: Event) => {
+      const path = (e as CustomEvent<string>).detail;
+      if (!path) return;
+      setProjectPath(path);
+      pushRecent(path);
+      setMsg(`Opened ${basename(path)}`);
+    };
+    window.addEventListener("waver:opened-project", onOpened);
+    return () => window.removeEventListener("waver:opened-project", onOpened);
+  }, []);
+
   // Success text is transient (4s) and yields the moment new edits land, so it can
   // never contradict the dirty dot (W-05).
   useEffect(() => {

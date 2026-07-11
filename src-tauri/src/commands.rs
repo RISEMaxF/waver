@@ -1380,6 +1380,16 @@ pub fn save_project(state: State<'_, AudioState>, path: String) -> Result<(), St
     std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
 }
 
+/// Project path handed to the app from the OS (double-clicked .wvproj: argv on
+/// Windows/Linux, the Opened run-event on macOS). The frontend takes it once.
+#[derive(Default)]
+pub struct StartupFile(pub std::sync::Mutex<Option<String>>);
+
+#[tauri::command]
+pub fn take_startup_project(startup: State<'_, StartupFile>) -> Option<String> {
+    startup.0.lock().expect("startup mutex poisoned").take()
+}
+
 fn recovery_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;

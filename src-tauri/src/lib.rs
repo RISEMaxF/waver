@@ -26,7 +26,15 @@ fn app_info() -> AppInfo {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    // A .wvproj passed on the command line (Windows/Linux file association).
+    let startup = commands::StartupFile::default();
+    if let Some(arg) = std::env::args().nth(1) {
+        if arg.to_lowercase().ends_with(".wvproj") && std::path::Path::new(&arg).exists() {
+            *startup.0.lock().expect("startup mutex poisoned") = Some(arg);
+        }
+    }
+    let app = tauri::Builder::default()
+        .manage(startup)
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
@@ -95,7 +103,28 @@ pub fn run() {
             commands::redo,
             commands::load_settings,
             commands::save_settings,
+            commands::take_startup_project,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+    app.run(|app_handle, event| {
+        // macOS delivers double-clicked files as an Opened event.
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Opened { urls } = &event {
+            use tauri::Manager;
+            if let Some(path) = urls.iter().filter_map(|u| u.to_file_path().ok()).find(|p| {
+                p.extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|e| e.eq_ignore_ascii_case("wvproj"))
+            }) {
+                let startup = app_handle.state::<commands::StartupFile>();
+                *startup.0.lock().expect("startup mutex poisoned") =
+                    Some(path.to_string_lossy().into_owned());
+                // Nudge the frontend in case it is already past its mount check.
+                use tauri::Emitter;
+                let _ = app_handle.emit("waver://open-project", ());
+            }
+        }
+        let _ = (app_handle, &event);
+    });
 }

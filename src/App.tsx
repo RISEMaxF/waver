@@ -9,7 +9,9 @@ import {
   checkRecovery,
   discardRecovery,
   setRecordTarget,
+  takeStartupProject,
 } from "./audio/project";
+import { listen } from "@tauri-apps/api/event";
 import { loadProjectFromPath } from "./audio/files";
 import { AudioControls } from "./components/AudioControls";
 import { FileBar } from "./components/FileBar";
@@ -243,12 +245,46 @@ function App() {
   // force-quit session, then keep autosaving (debounced) while there are unsaved
   // edits. A clean close discards the snapshot, so the prompt only ever appears
   // after an unclean exit.
+  // A project double-clicked in the OS (file association) loads immediately and
+  // takes precedence over the crash-recovery offer.
+  const openExternal = useRef(async () => {});
+  openExternal.current = async () => {
+    try {
+      const path = await takeStartupProject();
+      if (!path) return;
+      const r = await loadProjectFromPath(path);
+      project.markClean();
+      project.refresh();
+      window.dispatchEvent(
+        new CustomEvent("waver:opened-project", { detail: r.path }),
+      );
+    } catch {
+      /* fall back to a normal empty start */
+    }
+  };
+  useEffect(() => {
+    const un = listen("waver://open-project", () => openExternal.current());
+    return () => {
+      un.then((u) => u());
+    };
+  }, []);
+
   const recoveryChecked = useRef(false);
   useEffect(() => {
     if (recoveryChecked.current) return;
     recoveryChecked.current = true;
     (async () => {
       try {
+        const path = await takeStartupProject();
+        if (path) {
+          const r = await loadProjectFromPath(path);
+          project.markClean();
+          project.refresh();
+          window.dispatchEvent(
+            new CustomEvent("waver:opened-project", { detail: r.path }),
+          );
+          return; // an explicit open wins over the recovery offer
+        }
         const rec = await checkRecovery();
         if (!rec) return;
         const restore = await ask(

@@ -154,6 +154,8 @@ export const previewSource = (deviceId: string, sourceId: string) =>
 export const playbackStatus = () => invoke<PlaybackStatus>("playback_status");
 export const autosaveProject = () => invoke("autosave_project");
 export const syncPlayback = () => invoke("sync_playback");
+export const takeStartupProject = () =>
+  invoke<string | null>("take_startup_project");
 export const checkRecovery = () => invoke<string | null>("check_recovery");
 export const discardRecovery = () => invoke("discard_recovery");
 /** Nearest zero crossing to `frame` (source frames) — click-free edit points. */
